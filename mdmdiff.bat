@@ -23,12 +23,12 @@ ECHO -
 ECHO "- Getting report for MDD_A %MDD_A%"
 SET "REPORT_A=report.%MDD_A%.json"
 SET "REPORT_B=report.%MDD_B%.json"
-mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_A%" "/a:RUN_FEATURES=label,properties,translations"
+mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_A%" "/a:RUN_FEATURES=label,properties,translations,scripting"
 if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failure && pause && exit /b %errorlevel% )
 python mdmcreatehtmlrep.py "%REPORT_A%"
 if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failure && pause && exit /b %errorlevel% )
 ECHO "- Getting report for MDD_B %MDD_B%"
-mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_B%" "/a:RUN_FEATURES=label,properties,translations"
+mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_B%" "/a:RUN_FEATURES=label,properties,translations,scripting"
 if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failure && pause && exit /b %errorlevel% )
 python mdmcreatehtmlrep.py "%REPORT_B%"
 if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failure && pause && exit /b %errorlevel% )
