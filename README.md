@@ -8,7 +8,7 @@ It won't show ALL differences (for example, min/max range values for validation,
 
 Requires python 3 (python scripts can be compiled into windows executable, but it is important for me to have access to code, as it was originally developed in scripting language and it is executed by interpreting a script - I don't see a problem to install python).
 
-Originally publish 12/15/2022 AP
+Originally published 12/15/2022 AP
 
 ### Usage ###
 it was designed to be started from BAT file.
@@ -17,7 +17,8 @@ Edit mdmdiff.bat and specify MDD names at the top.
 
 MDD files should be in the same directory as the script.
 
-It can be configured with command-line parameters. For example (in mdmdiff.bat), find <code>mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_A%" "/a:RUN_FEATURES=label,properties,translations,scripting"</code>
+It can be configured with command-line parameters. For example (in mdmdiff.bat), find
+<code>mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_A%" "/a:RUN_FEATURES=label,properties,translations,scripting"</code> (and same for MDD_B)
 
 You can replace <code> "/a:RUN_FEATURES=label,properties,translations,scripting"</code> (that's default) and pass
 1. <code> "/a:RUN_FEATURES=label,properties,translations"</code> - remove certain parts separated with comma to not have some of the columns populated. For example, you don't need a column for translations, change to <code>RUN_FEATURES=label,properties</code>. Or, you don't need properties, change to <code>RUN_FEATURES=label,properties</code>.
