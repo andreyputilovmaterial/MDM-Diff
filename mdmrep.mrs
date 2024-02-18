@@ -25,7 +25,7 @@
 ' - translations (to Diff translations); note if there is just one translation overlay and it's ENU it's not displayed
 ' - properties
 #if !defined(RUN_FEATURES)
-#define RUN_FEATURES "label,properties,translations"
+#define RUN_FEATURES "label,properties,translations,scripting"
 #endif
 
 
@@ -478,6 +478,9 @@ sub Run_ProcessMDMItem(Item,mdm,Path,Report,Options,isFirstEntityInCollection)
 			Document_OrderedCollection_Insert(Report,sPropResultText,isFirst)
 			isFirst = false
 		'case else
+		elseif FeatureType="scripting" then
+			Document_OrderedCollection_Insert(Report,Item.Script,isFirst)
+			isFirst = false
 		else
 			ErrorRaise("options param is not supported: "+ctext(FeatureType))
 		'end select
@@ -676,6 +679,10 @@ function Run_SanitizeOptions(Mdm,Options)
 				else
 					Result = Result + sResultAdd
 				end if
+			case "scripting"
+				if find(split(Result,","),FeatureDef)<0 then
+					Result = Result + "," + FeatureDef
+				end if
 			case else
 				ErrorRaise("wrong options: "+ctext(FeatureDef))
 		end select
@@ -715,6 +722,10 @@ sub Run_AddHeaderLineToReport(mdm,Report,Options)
 				sHelperVar = "No"
 			end if
 			Document_OrderedCollection_Insert(Report,"Custom properties ("+sHelperVar+" contexts)",isFirst)
+			isFirst = false
+		'case "scripting"
+		elseif FeatureType="scripting" then
+			Document_OrderedCollection_Insert(Report,"Metadata",isFirst)
 			isFirst = false
 		'case else
 		else

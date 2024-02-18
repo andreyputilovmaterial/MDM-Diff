@@ -18,10 +18,10 @@ Edit mdmdiff.bat and specify MDD names at the top.
 MDD files should be in the same directory as the script.
 
 It can be configured with command-line parameters. For example (in mdmdiff.bat), find
-<code>mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_A%" "/a:RUN_FEATURES=label,properties,translations,scripting"</code> (and same for MDD_B)
+<br /><code>mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_A%" "/a:RUN_FEATURES=label,properties,translations"</code> (and same for MDD_B)
 
 You can replace <code> "/a:RUN_FEATURES=label,properties,translations,scripting"</code> and pass
-1. <code> "/a:RUN_FEATURES=label,properties,translations"</code> (that's default) - remove certain parts separated with comma to not have some of the columns populated. For example, you don't need a column for translations, change to <code>RUN_FEATURES=label,properties</code>. Or, you don't need properties, change to <code>RUN_FEATURES=label,properties</code>.
+1. <code> "/a:RUN_FEATURES=label,properties,translations,scripting"</code> (default is <code>label,properties,translations</code>) - remove certain parts separated with comma to not have some of the columns populated. For example, you don't need a column for translations, change to <code>RUN_FEATURES=label,properties</code>. Or, you don't need properties, change to <code>RUN_FEATURES=label,properties</code>.
 
 2. You can add <code> /d:RUN_SECTIONS=23</code> (that's default), where "23" is a combination of bitwise flags. Use this to include or exclude certain sections from the report. "1" for languages (I recomment having it on as it does not occupy much space in the report but it is important to see which translation overlays are included), "2" for shared lists, "4"  for all normal items (questions) in MDD, "8" to have a section with variables listed (it is quite useless but can be displayed if you want to), "16" for pages - quite useless too but it does not take much space. To find a combination you can just normally add these numbers (each number once).
 
