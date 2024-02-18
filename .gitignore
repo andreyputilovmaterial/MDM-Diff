@@ -1,5 +1,10 @@
 ## Ignore everything in this directory
 # *
+*.mdd
+**/[Tt]est*
+ref.py
+Test.py
+report.*
 # Except this file
 !.gitignore
 

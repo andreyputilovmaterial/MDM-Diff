@@ -31,17 +31,22 @@
 
 ' report sections
 ' numeric, and parts are bitwise flags
-' default is 23
+' default is 55
 ' possible values:
 ' - RUN_SECTION_LANGUAGES 1
 ' - RUN_SECTION_SHAREDLISTS 2
 ' - RUN_SECTION_FIELDS 4
 ' - RUN_SECTION_VARIABLES 8
 ' - RUN_SECTION_PAGES 16
+' - RUN_SECTION_MDMPROPERTIES 32
 #if !defined(RUN_SECTIONS)
-#define RUN_SECTIONS 23
+#define RUN_SECTIONS 55
 #endif
-#define RUN_SECTION_MDMPROPERTIES true ' always true, for now
+#if (RUN_SECTIONS&32)
+#define RUN_SECTION_MDMPROPERTIES true
+#else
+#define RUN_SECTION_MDMPROPERTIES false
+#endif
 #if (RUN_SECTIONS&1)
 #define RUN_SECTION_LANGUAGES true
 #else
