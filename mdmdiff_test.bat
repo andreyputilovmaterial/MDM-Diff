@@ -5,8 +5,8 @@ ECHO - MDM Diff. Starting...
 ECHO -
 
 REM set MDD file names
-SET "MDD_A=p123456.mdd"
-SET "MDD_B=p654321.mdd"
+SET "MDD_A=p221365_Wave13.mdd"
+SET "MDD_B=p221366_Wave18.mdd"
 
 REM SET "MDD_A=p221365_auto_11-18-2022.mdd"
 REM SET "MDD_B=p221365_v16.mdd"
@@ -28,7 +28,7 @@ REM ::  "/a:RUN_FEATURES=label,properties,translations,scripting"
 REM ::  /d:RUN_SECTIONS=119
 REM ::  "/a:RUN_FEATURES_LABEL_FORCE_CONTEXT=Question"
 REM ::  "/a:RUN_FEATURES_PROPERTIES_CONTEXTS=Analysis,Question"
-mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_A%" "/a:RUN_FEATURES=label,properties,translations" /d:RUN_SECTIONS=119
+mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_A%" "/a:RUN_FEATURES=label" /d:RUN_SECTIONS=96
 if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failure && pause && exit /b %errorlevel% )
 python mdmcreatehtmlrep.py "%REPORT_A%"
 if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failure && pause && exit /b %errorlevel% )
@@ -38,12 +38,14 @@ REM ::  /d:RUN_SECTIONS=119
 REM ::  "/a:RUN_FEATURES_LABEL_FORCE_CONTEXT=Question"
 REM ::  "/a:RUN_FEATURES_PROPERTIES_CONTEXTS=Analysis,Question"
 ECHO "- Getting report for MDD_B %MDD_B%"
-mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_B%" "/a:RUN_FEATURES=label,properties,translations" /d:RUN_SECTIONS=119
+mrscriptcl mdmrep.mrs "/a:INPUT_MDD=%MDD_B%" "/a:RUN_FEATURES=label" /d:RUN_SECTIONS=96
 if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failure && pause && exit /b %errorlevel% )
 python mdmcreatehtmlrep.py "%REPORT_B%"
 if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failure && pause && exit /b %errorlevel% )
 
 
+SET "REPORT_A=report.%MDD_A%.json"
+SET "REPORT_B=report.%MDD_B%.json"
 
 
 

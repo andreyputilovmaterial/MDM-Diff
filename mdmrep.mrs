@@ -39,6 +39,7 @@
 ' - RUN_SECTION_VARIABLES 8
 ' - RUN_SECTION_PAGES 16
 ' - RUN_SECTION_MDMPROPERTIES 32
+' - RUN_SECTION_ROUTING 64
 #if !defined(RUN_SECTIONS)
 #define RUN_SECTIONS 55
 #endif
@@ -71,6 +72,11 @@
 #define RUN_SECTION_PAGES true
 #else
 #define RUN_SECTION_PAGES false
+#endif
+#if (RUN_SECTIONS&64)
+#define RUN_SECTION_ROUTING true
+#else
+#define RUN_SECTION_ROUTING false
 #endif
 
 
@@ -267,6 +273,14 @@
 			Run_LoopThroughPages(mdm.Pages,mdm,"Pages."+MARKER_BEGINLINE_REPLACEMENT+"",Report,Options)
 #endif
 			
+#if RUN_SECTION_ROUTING
+			Document_OrderedCollection_Begin(Report,isFirstSection)
+			isFirstSection = false
+			Document_OrderedCollection_insert(Report,"Info: Routing is listed below",true)
+			Document_OrderedCollection_End(Report)
+			Run_LoopThroughRouting(mdm,mdm,"RoutingLine."+MARKER_BEGINLINE_REPLACEMENT+"",Report,Options)
+#endif
+			
 		Document_OrderedCollection_End(Report)
 	Document_End(Report)
 	set Report = Null
@@ -335,7 +349,7 @@
 function EscapeHtml(sVal)
 	dim sReturn, isAChar, CharCodes, i, ch
     sReturn = ""
-    CharCodes = split( "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z a b c d e f g h i j k l m n o p q r s t u v w x y z 0 1 2 3 4 5 6 7 8 9 .", " " )
+    CharCodes = split( "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z a b c d e f g h i j k l m n o p q r s t u v w x y z 0 1 2 3 4 5 6 7 8 9 . _", " " )
     'if ((TypeName(sVal)="String") And (not IsNull(sVal)) And (sVal<>"")) then
     if true then
         for i=0 To Len(sVal)-1
@@ -348,6 +362,15 @@ function EscapeHtml(sVal)
          Next
     end if
     EscapeHtml = sReturn
+end function
+
+function BeautifyRouting(sVal)
+	dim LineBreak_RegEx
+	set LineBreak_RegEx = CreateObject("VBScript.RegExp")
+	LineBreak_RegEx.Pattern = "(\r?\n)"
+	LineBreak_RegEx.IgnoreCase = True
+	LineBreak_RegEx.Global = True
+	BeautifyRouting = LineBreak_RegEx.Replace(sVal,""+MARKER_HIDDENLINEBREAK+"$1")
 end function
 
 function validateId(sVal)
@@ -494,6 +517,40 @@ sub Run_ProcessMDMItem(Item,mdm,Path,Report,Options,isFirstEntityInCollection)
 	Document_OrderedCollection_End(Report)
 end sub
 
+sub Run_ProcessRouting(Item,mdm,Path,Report,Options,isFirstEntityInCollection)
+	dim sLabelDefault, FeatureType
+	Document_OrderedCollection_Begin(Report,isFirstEntityInCollection)
+	dim isFirst
+	isFirst = true
+	Document_OrderedCollection_Insert(Report,SanitizeQuestionName(Path),isFirst)
+	isFirst = false
+	for each FeatureType in split(Options,",")
+		'select case FeatureType
+		'case "label"
+		if FeatureType="label" then
+			sLabelDefault = BeautifyRouting(Item)
+			Document_OrderedCollection_Insert(Report,sLabelDefault,isFirst)
+			isFirst = false
+		'case "langcode-a" to "langcode-Z"
+		elseif left(FeatureType,9)="langcode-" then
+			Document_OrderedCollection_Insert(Report,"",isFirst)
+			isFirst = false
+		'case "properties"
+		elseif FeatureType="properties" then
+			Document_OrderedCollection_Insert(Report,"",isFirst)
+			isFirst = false
+		'case else
+		elseif FeatureType="scripting" then
+			Document_OrderedCollection_Insert(Report,"",isFirst)
+			isFirst = false
+		else
+			ErrorRaise("options param is not supported: "+ctext(FeatureType))
+		'end select
+		end if
+	next
+	Document_OrderedCollection_End(Report)
+end sub
+
 sub Run_LoopThroughVariables(Fields,mdm,Path,Report,Options)
    dim Question, isFirst
 	 isFirst = false ' true
@@ -562,6 +619,15 @@ sub Run_LoopThroughPages(Fields,mdm,Path,Report,Options)
 		Run_ProcessMDMItem(Question,mdm,Path+"."+Question.Name,Report,Options,isFirst)
 		isFirst = false
 		Run_LoopThroughItem(Question,mdm,Path+"."+Question.Name,Report,Options)
+	Next
+end sub
+
+sub Run_LoopThroughRouting(Fields,mdm,Path,Report,Options)
+	dim Question, isFirst
+	isFirst = false ' true
+	for each Question in split("Web",",")
+		Run_ProcessRouting(Fields.Routing.Script,mdm,Path+"."+"Routing",Report,Options,isFirst)
+		isFirst = false
 	Next
 end sub
 

@@ -74,7 +74,7 @@ class MyersDiffSplitter:
         self.delimiter = delimiter
     def __iter__(self):
         self.start = 0
-        self.pos = ( 0 if not self.delimiter else ( data.index(self.delimiter, self.start) if self.delimiter in self.data[self.start:] else -1 ) )
+        self.pos = ( 0 if not self.delimiter else ( self.data.index(self.delimiter, self.start) if self.delimiter in self.data[self.start:] else -1 ) )
         return self
     def __next__(self):
         if len(self.data) == 0:
@@ -112,7 +112,7 @@ def myers_diff_get_default_settings():
 
 class MyersDiffEncodeContext:
     def __init__(self, encoder, data, options={}):
-        re = None
+        #re = None # ??? wtf was that???
         self.encoder = encoder
         self._codes = {}
         self._modified = {}
@@ -138,9 +138,10 @@ class MyersDiffEncodeContext:
             # if options.lowercase..., options.ignoreAccents
             # line = lower(line) ...
             # part = { 'text': part_txt, 'pos': count }
-            line = str(part['text'])
+            line = '{s}'.format(s=part['text'])
+            line = '' if line is None else line
             if ('ignorewhitespace' in options) and (options['ignorewhitespace']):
-                line = re.sub(r'^\s*','',re.sub(r'\s*$','',re.sub(r'\s+',' ',line)))
+                line = re.sub(r'^\s*','',re.sub(r'\s*$','',re.sub(r'\s+',' ',line,flags=re.DOTALL|re.ASCII|re.I),flags=re.DOTALL|re.ASCII|re.I),flags=re.DOTALL|re.ASCII|re.I)
             if ('ignorecase' in options) and (options['ignorecase']):
                 line = line.lower()
             if ('ignoreaccents' in options) and (options['ignoreaccents']):
@@ -365,6 +366,8 @@ class Myers:
         settings = {**myers_diff_get_default_settings(),**options}
         lhsctx = encoder.encode(lhs,settings)
         rhsctx = encoder.encode(rhs,settings)
+        #print('DEBUG: {opts}'.format(opts=lhsctx._parts))
+        #print('DEBUG: {opts}'.format(opts=rhsctx._parts))
         # Myers.LCS(lhsctx, rhsctx)
         Myers.get_longest_common_subsequence(lhsctx, 0, lhsctx.length, rhsctx, 0, rhsctx.length, [None for i in range(0,4*(len(lhs)+len(rhs))+10)], [None for i in range(0,4*(len(lhs)+len(rhs))+10)] )
         # compare lhs/rhs codes and build a list of comparisons
@@ -547,183 +550,283 @@ def find_diff_jsonstr(json_lmdd,json_rmdd):
     counter = 0
     counter_total = len(diff_records)
     for elem in diff_records:
-        # iterate over each line in the report
-        # it is: kept, or deleted, or added
+        try:
+            # iterate over each line in the report
+            # it is: kept, or deleted, or added
 
-        # check if we need to update the user that it is running, if it takes too long
-        if counter-counter_last_reported>100: # not every row, at least every 100-th, and then we check if time elapsed from the last update is more then 60 seconds
-            time_now = datetime.utcnow()
-            if (time_now - time_last_reported).total_seconds()>60:
-                print('Checking for diffs in labels, processing line {nline} / {nlinetotal} ({per}%)\n'.format(nline=counter,nlinetotal=counter_total,per=round(counter*100/counter_total,1)))
-                counter_last_reported = counter
-                time_last_reported = time_now
-        counter = counter + 1
+            # check if we need to update the user that it is running, if it takes too long
+            if counter-counter_last_reported>100: # not every row, at least every 100-th, and then we check if time elapsed from the last update is more then 60 seconds
+                time_now = datetime.utcnow()
+                if (time_now - time_last_reported).total_seconds()>25:
+                    print('Checking for diffs in labels, processing line {nline} / {nlinetotal} ({per}%)\n'.format(nline=counter,nlinetotal=counter_total,per=round(counter*100/counter_total,1)))
+                    counter_last_reported = counter
+                    time_last_reported = time_now
+            counter = counter + 1
 
-        item_name = elem.line
+            item_name = elem.line
 
-        # self describing
-        exists_lmdd = elem.line in rows_lmdd
-        exists_rmdd = elem.line in rows_rmdd
+            # self describing
+            exists_lmdd = elem.line in rows_lmdd
+            exists_rmdd = elem.line in rows_rmdd
 
-        diff_flag = None
-        # that incication, if it was added, removed, or whatever
-        if isinstance(elem, DiffItemKeep):
-            if is_info_item(item_name):
-                diff_flag = '(info)'
-            else:
-                diff_flag = '???'
-        elif isinstance(elem, DiffItemInsert):
-            if exists_lmdd:
-                diff_flag = '???'
-            else:
-                diff_flag = 'added'
-        elif isinstance(elem, DiffItemRemove):
-            if exists_rmdd:
-                diff_flag = '(moved)'
-            else:
-                diff_flag = 'removed'
-        else:
-            raise Exception('unknown diff flag')
-
-        # grab corresponding data from left MDD for the "elem.line" row
-        reportline_row_lmdd = []
-        for col_def in columns_headers_check:
-            value = None
-            if exists_lmdd:
-                try:
-                    index_row = rows_lmdd.index(elem.line)
-                    index = columns_headers_lmdd.index(col_def)
-                    value = records_lmdd[index_row][index] if index<len(records_lmdd[index_row]) else ''
-                except ValueError:
-                    value = ''
-            else:
-                value = ''
-            reportline_row_lmdd.append(value)
-        # and now from the right MDD
-        reportline_row_rmdd = []
-        for col_def in columns_headers_check:
-            value = None
-            if exists_rmdd:
-                try:
-                    index_row = rows_rmdd.index(elem.line)
-                    index = columns_headers_rmdd.index(col_def)
-                    value = records_rmdd[index_row][index] if index<len(records_rmdd[index_row]) else ''
-                except ValueError:
-                    value = ''
-            else:
-                value = ''
-            reportline_row_rmdd.append(value)
-
-        # diff!
-        # check for differences in each field - in labels, properties, etc
-        if not (diff_flag in ['added','removed']):
-            # we skip rows where the row was added or removed - it definitely changed, as one side simply does not exist; no need to compare
-            did_any_col_change = False
-            did_any_significant_col_change = False
-            for col_num in range(len(columns_headers_check)):
-                col_def = columns_headers_check[col_num]
-                cell_contents_lmdd = reportline_row_lmdd[col_num]
-                cell_contents_rmdd = reportline_row_rmdd[col_num]
-                if diff_flag=='(moved)':
-                    # blind up contents - it will appear at a different line, where it's moved
-                    cell_contents_lmdd = ''
-                    cell_contents_rmdd = ''
-                is_col_significant = True # we can disregard differences in custom properties or translations
-                col_type = recognize_col_type_by_label(col_def)
-                if col_type == 'label':
-                    # Label = significant
-                    is_col_significant = True
-                elif col_type == 'properties':
-                    # Custom properties = not significant
-                    is_col_significant = False
-                elif col_type == 'translations':
-                    # Translations = not significant
-                    is_col_significant = False
+            diff_flag = None
+            # that incication, if it was added, removed, or whatever
+            if isinstance(elem, DiffItemKeep):
+                if is_info_item(item_name):
+                    diff_flag = '(info)'
                 else:
-                    is_col_significant = True
+                    diff_flag = '???'
+            elif isinstance(elem, DiffItemInsert):
+                if exists_lmdd:
+                    diff_flag = '???'
+                else:
+                    diff_flag = 'added'
+            elif isinstance(elem, DiffItemRemove):
+                if exists_rmdd:
+                    diff_flag = '(position changed)'
+                else:
+                    diff_flag = 'removed'
+            else:
+                raise Exception('unknown diff flag')
 
-                did_col_change = False
-                did_significant_col_change = False
+            # grab corresponding data from left MDD for the "elem.line" row
+            reportline_row_lmdd = []
+            for col_def in columns_headers_check:
+                value = None
+                if exists_lmdd:
+                    try:
+                        index_row = rows_lmdd.index(elem.line)
+                        index = columns_headers_lmdd.index(col_def)
+                        value = records_lmdd[index_row][index] if index<len(records_lmdd[index_row]) else ''
+                    except ValueError:
+                        value = ''
+                else:
+                    value = ''
+                reportline_row_lmdd.append(value)
+            # and now from the right MDD
+            reportline_row_rmdd = []
+            for col_def in columns_headers_check:
+                value = None
+                if exists_rmdd:
+                    try:
+                        index_row = rows_rmdd.index(elem.line)
+                        index = columns_headers_rmdd.index(col_def)
+                        value = records_rmdd[index_row][index] if index<len(records_rmdd[index_row]) else ''
+                    except ValueError:
+                        value = ''
+                else:
+                    value = ''
+                reportline_row_rmdd.append(value)
 
-                if ( (type(cell_contents_lmdd) is str) and (type(cell_contents_rmdd) is str) ):
-                    cell_contents_splitwords_lmdd = None
-                    cell_contents_splitwords_rmdd = None
-                    if cell_contents_lmdd==cell_contents_rmdd:
-                        # no need to check full, if matches
-                        diff_col = []
-                        # cell_contents_upd_lmdd = cell_contents_lmdd
-                        # cell_contents_upd_rmdd = cell_contents_rmdd
-                        cell_contents_splitwords_lmdd = [unescape_html(cell_contents_lmdd)]
-                        cell_contents_splitwords_rmdd = [unescape_html(cell_contents_rmdd)]
-                        cell_contents_upd_lmdd = ''
-                        cell_contents_upd_rmdd = ''
-                        # continue
+            # diff!
+            # check for differences in each field - in labels, properties, etc
+            if not (diff_flag in ['added','removed']):
+                # we skip rows where the row was added or removed - it definitely changed, as one side simply does not exist; no need to compare
+                did_any_col_change = False
+                did_any_significant_col_change = False
+                for col_num in range(len(columns_headers_check)):
+                    col_def = columns_headers_check[col_num]
+                    cell_contents_lmdd = reportline_row_lmdd[col_num]
+                    cell_contents_rmdd = reportline_row_rmdd[col_num]
+                    if diff_flag=='(position changed)':
+                        # blind up contents - it will appear at a different line in a new location
+                        cell_contents_lmdd = ''
+                        cell_contents_rmdd = ''
+                    is_col_significant = True # we can disregard differences in custom properties or translations
+                    col_type = recognize_col_type_by_label(col_def)
+                    if col_type == 'label':
+                        # Label = significant
+                        is_col_significant = True
+                    elif col_type == 'properties':
+                        # Custom properties = not significant
+                        is_col_significant = False
+                    elif col_type == 'translations':
+                        # Translations = not significant
+                        is_col_significant = False
                     else:
-                        cell_contents_splitwords_lmdd = split_words(unescape_html(cell_contents_lmdd))
-                        cell_contents_splitwords_rmdd = split_words(unescape_html(cell_contents_rmdd))
-                        diff_col = Myers.diff(cell_contents_splitwords_lmdd,cell_contents_splitwords_rmdd,{'compare':'array'})
-                        cell_contents_upd_lmdd = ''
-                        cell_contents_upd_rmdd = ''
-                    # TODO: update to newer diff fn
-                    diff_col_records = Myers.to_records(diff_col,cell_contents_splitwords_lmdd,cell_contents_splitwords_rmdd)
-                    # combine parts
-                    for i in range(len(diff_col_records)):
-                        if i>0:
-                            if isinstance(diff_col_records[i],DiffItemKeep) and isinstance(diff_col_records[i-1],DiffItemKeep):
-                                diff_col_records[i] = DiffItemKeep(diff_col_records[i-1].line+diff_col_records[i].line)
-                                diff_col_records[i-1] = DiffItemKeep('')
-                            if isinstance(diff_col_records[i],DiffItemInsert) and isinstance(diff_col_records[i-1],DiffItemInsert):
-                                diff_col_records[i] = DiffItemInsert(diff_col_records[i-1].line+diff_col_records[i].line)
-                                diff_col_records[i-1] = DiffItemKeep('')
-                            if isinstance(diff_col_records[i],DiffItemRemove) and isinstance(diff_col_records[i-1],DiffItemRemove):
-                                diff_col_records[i] = DiffItemRemove(diff_col_records[i-1].line+diff_col_records[i].line)
-                                diff_col_records[i-1] = DiffItemKeep('')
-                    diff_col_records = filter(lambda e:(len(e.line)>0),diff_col_records)
-                    # get updated labels; yeah generally ugly code sorry
-                    for diff_part in diff_col_records:
-                        cell_contents_upd_lmdd = '{prev_str}{append_part}'.format(
-                            prev_str = cell_contents_upd_lmdd,
-                            append_part = (
-                                escape_html(diff_part.line)
-                                if isinstance(diff_part, DiffItemKeep)
-                                else (
-                                    ''
-                                    if isinstance(diff_part, DiffItemInsert)
-                                    else '<<REMOVED>>{ins}<<ENDREMOVED>>'.format(ins=escape_html(diff_part.line))
+                        is_col_significant = True
+
+                    did_col_change = False
+                    did_significant_col_change = False
+
+                    if ( (type(cell_contents_lmdd) is str) and (type(cell_contents_rmdd) is str) ):
+                        cell_contents_splitwords_lmdd = None
+                        cell_contents_splitwords_rmdd = None
+                        diff_col = None
+                        diff_col_records = None
+                        if cell_contents_lmdd==cell_contents_rmdd:
+                            # no need to check full, if matches
+                            diff_col = []
+                            # cell_contents_upd_lmdd = cell_contents_lmdd
+                            # cell_contents_upd_rmdd = cell_contents_rmdd
+                            cell_contents_splitwords_lmdd = [unescape_html(cell_contents_lmdd)]
+                            cell_contents_splitwords_rmdd = [unescape_html(cell_contents_rmdd)]
+                            cell_contents_upd_lmdd = ''
+                            cell_contents_upd_rmdd = ''
+                            diff_col_records = Myers.to_records(diff_col,cell_contents_splitwords_lmdd,cell_contents_splitwords_rmdd)
+                            # continue
+                        else:
+                            # TODO: split LINES!
+                            ## old code, for reference:
+                            #cell_contents_splitwords_lmdd = split_words(unescape_html(cell_contents_lmdd))
+                            #cell_contents_splitwords_rmdd = split_words(unescape_html(cell_contents_rmdd))
+                            #diff_col = Myers.diff(cell_contents_splitwords_lmdd,cell_contents_splitwords_rmdd,{'compare':'array'})
+                            #cell_contents_upd_lmdd = ''
+                            #cell_contents_upd_rmdd = ''
+                            # new code:
+                            # The goal of this updated code is to normalize line breaks - if we have a piece of text removed, then we are adding an emty string with similar numer of linebreaks so that it aligns in the final report
+                            # The primary goal is to have readable diff in routing, but it also applies to custom properties too
+                            cell_contents_fulltext_lmdd = unescape_html(cell_contents_lmdd)
+                            cell_contents_lines_lmdd = re.sub(r'(?:&#60|<)(?:&#60|<)HIDDENLINEBREAK(?:&#62|>)(?:&#62|>)\r?\n?',"\n",cell_contents_fulltext_lmdd,flags=re.DOTALL|re.ASCII|re.I)
+                            cell_contents_lines_lmdd = [ '{line}{linebreak}'.format(line=line,linebreak="\n") for line in cell_contents_lines_lmdd.split("\n") ]
+                            cell_contents_fulltext_rmdd = unescape_html(cell_contents_rmdd)
+                            cell_contents_lines_rmdd = re.sub(r'(?:&#60|<)(?:&#60|<)HIDDENLINEBREAK(?:&#62|>)(?:&#62|>)\r?\n?',"\n",cell_contents_fulltext_rmdd,flags=re.DOTALL|re.ASCII|re.I)
+                            cell_contents_lines_rmdd =  [ '{line}{linebreak}'.format(line=line,linebreak="\n") for line in cell_contents_lines_rmdd.split("\n") ]
+                            # TODO: compare as lines
+                            diff_col_step1 = Myers.diff(cell_contents_lines_lmdd,cell_contents_lines_rmdd,{'compare':'array','ignorewhitespace':True})
+                            diff_col_records_step1 = Myers.to_records(diff_col_step1,cell_contents_lines_lmdd,cell_contents_lines_rmdd)
+                            # combine parts per line, before splitting into words
+                            diff_col_records_step1 = list(filter(lambda e:(len(e.line)>0),diff_col_records_step1))
+                            for i in range(len(diff_col_records_step1)):
+                                if i>0:
+                                    if isinstance(diff_col_records_step1[i],DiffItemKeep) and isinstance(diff_col_records_step1[i-1],DiffItemKeep):
+                                        diff_col_records_step1[i] = DiffItemKeep(diff_col_records_step1[i-1].line+diff_col_records_step1[i].line)
+                                        diff_col_records_step1[i-1] = DiffItemKeep('')
+                                    elif isinstance(diff_col_records_step1[i],DiffItemInsert) and isinstance(diff_col_records_step1[i-1],DiffItemInsert):
+                                        diff_col_records_step1[i] = DiffItemInsert(diff_col_records_step1[i-1].line+diff_col_records_step1[i].line)
+                                        diff_col_records_step1[i-1] = DiffItemKeep('')
+                                    elif isinstance(diff_col_records_step1[i],DiffItemRemove) and isinstance(diff_col_records_step1[i-1],DiffItemRemove):
+                                        diff_col_records_step1[i] = DiffItemRemove(diff_col_records_step1[i-1].line+diff_col_records_step1[i].line)
+                                        diff_col_records_step1[i-1] = DiffItemKeep('')
+                            diff_col_records_step1 = list(filter(lambda e:(len(e.line)>0),diff_col_records_step1))
+                            diff_col_records = []
+                            #diff_col_records.append(DiffItemKeep('')) # dummy empty part
+                            for part in diff_col_records_step1:
+                                if isinstance(part,DiffItemKeep):
+                                    if len(part.line)>0:
+                                        diff_col_records.append(part)
+                                elif isinstance(part,DiffItemInsert) or isinstance(part,DiffItemRemove):
+                                    thisadded = isinstance(part,DiffItemInsert)
+                                    thisremoved = isinstance(part,DiffItemRemove)
+                                    previndex = len(diff_col_records)-1
+                                    prevadded = isinstance(diff_col_records[previndex],DiffItemInsert) if previndex>=0 else None
+                                    prevremoved = isinstance(diff_col_records[previndex],DiffItemRemove) if previndex>=0 else None
+                                    if (thisadded and prevremoved) or (prevadded and thisremoved):
+                                        part_added = part if thisadded else diff_col_records[previndex]
+                                        part_removed = part if thisremoved else diff_col_records[previndex]
+                                        part_split_lmdd = split_words(part_removed.line)
+                                        part_split_rmdd = split_words(part_added.line)
+                                        diff_step2 = Myers.diff(part_split_lmdd,part_split_rmdd,{'compare':'array'})
+                                        diff_records_step2 = Myers.to_records(diff_step2,part_split_lmdd,part_split_rmdd)
+                                        # normalize line-breaks
+                                        #ahhh, this is stupid: we also have to undo adding linebreaks that we added for the previous line
+                                        nprevadded = diff_col_records[previndex].line.count("\n")
+                                        nprevprevlineexpected = ''.join(["\n" for i in range(nprevadded)])
+                                        if diff_col_records[previndex-1].line==nprevprevlineexpected:
+                                            # this SHOULD be true, and item diff_col_records[previndex-1] should exist
+                                            diff_col_records[previndex-1] = DiffItemKeep('')
+                                        else:
+                                            raise TypeError('this is wrong please check. Expected {nnn} n\'s but found this: {word}'.format(nnn=nprevadded,word=diff_col_records[previndex-1]))
+                                        diff_col_records[previndex] = DiffItemKeep('')
+                                        for part_word in diff_records_step2:
+                                            count_n_thispart = part_word.line.count("\n")
+                                            if isinstance(part_word,DiffItemKeep):
+                                                diff_col_records.append(part_word)
+                                            elif isinstance(part_word,DiffItemInsert):
+                                                diff_col_records.append(DiffItemRemove(''.join(["\n" for i in range(count_n_thispart)])))
+                                                diff_col_records.append(part_word)
+                                            elif isinstance(part_word,DiffItemRemove):
+                                                diff_col_records.append(DiffItemInsert(''.join(["\n" for i in range(count_n_thispart)])))
+                                                diff_col_records.append(part_word)
+                                            else:
+                                                raise TypeError('diff line not of known type, Item = {item}, word = {line}'.format(item=elem.line,line=part_word.line))
+                                        # add a dummy empty element so that this condition is not triggered again at the next line (I mean, "(thisadded and prevremoved) or (prevadded and thisremoved)" condition)
+                                        if len(diff_col_records)>0 and not(isinstance(diff_col_records[len(diff_col_records)-1],DiffItemKeep)): 
+                                            diff_col_records.append(DiffItemKeep(''))
+                                    else:
+                                        # normalize line-breaks
+                                        if isinstance(part,DiffItemInsert):
+                                            diff_col_records.append(DiffItemRemove(''.join(["\n" for i in range(part.line.count("\n"))])))
+                                            diff_col_records.append(part)
+                                        elif isinstance(part,DiffItemRemove):
+                                            diff_col_records.append(DiffItemInsert(''.join(["\n" for i in range(part.line.count("\n"))])))
+                                            diff_col_records.append(part)
+                                        else:
+                                            raise TypeError('diff line not of known type, Item = {item}, word = {line}'.format(item=elem.line,line=part.line))
+                                else:
+                                    raise TypeError('diff line not of known type, Item = {item}, line#{line}'.format(item=elem.line,line=i))
+                            # replace line-breaks back with that special keyword <<HIDDENLINEBREAK>>
+                            linebreakreplacement = '{pattern}{linebreak}'.format(pattern='<<HIDDENLINEBREAK>>',linebreak="\n")
+                            for p in range(len(diff_col_records)):
+                                diff_col_records[p] = diff_col_records[p]._replace(line=diff_col_records[p].line.replace("\n",linebreakreplacement))
+                            #pass
+                            cell_contents_upd_lmdd = ''
+                            cell_contents_upd_rmdd = ''
+                        # combine parts again, at all levels - final pass
+                        diff_col_records = list(filter(lambda e:(len(e.line)>0),diff_col_records))
+                        for i in range(len(diff_col_records)):
+                            if i>0:
+                                if isinstance(diff_col_records[i],DiffItemKeep) and isinstance(diff_col_records[i-1],DiffItemKeep):
+                                    diff_col_records[i] = DiffItemKeep(diff_col_records[i-1].line+diff_col_records[i].line)
+                                    diff_col_records[i-1] = DiffItemKeep('')
+                                if isinstance(diff_col_records[i],DiffItemInsert) and isinstance(diff_col_records[i-1],DiffItemInsert):
+                                    diff_col_records[i] = DiffItemInsert(diff_col_records[i-1].line+diff_col_records[i].line)
+                                    diff_col_records[i-1] = DiffItemKeep('')
+                                if isinstance(diff_col_records[i],DiffItemRemove) and isinstance(diff_col_records[i-1],DiffItemRemove):
+                                    diff_col_records[i] = DiffItemRemove(diff_col_records[i-1].line+diff_col_records[i].line)
+                                    diff_col_records[i-1] = DiffItemKeep('')
+                        diff_col_records = list(filter(lambda e:(len(e.line)>0),diff_col_records))
+                        # get updated labels; yeah generally ugly code sorry
+                        for diff_part in diff_col_records:
+                            cell_contents_upd_lmdd = '{prev_str}{append_part}'.format(
+                                prev_str = cell_contents_upd_lmdd,
+                                append_part = (
+                                    escape_html(diff_part.line)
+                                    if isinstance(diff_part, DiffItemKeep)
+                                    else (
+                                        ''
+                                        if isinstance(diff_part, DiffItemInsert)
+                                        else '<<REMOVED>>{ins}<<ENDREMOVED>>'.format(ins=escape_html(diff_part.line))
+                                    )
                                 )
                             )
-                        )
-                        cell_contents_upd_rmdd = '{prev_str}{append_part}'.format(
-                            prev_str = cell_contents_upd_rmdd,
-                            append_part = (
-                                escape_html(diff_part.line)
-                                if isinstance(diff_part, DiffItemKeep)
-                                else (
-                                    '<<ADDED>>{ins}<<ENDADDED>>'.format(ins=escape_html(diff_part.line))
-                                    if isinstance(diff_part, DiffItemInsert)
-                                    else ''
+                            cell_contents_upd_rmdd = '{prev_str}{append_part}'.format(
+                                prev_str = cell_contents_upd_rmdd,
+                                append_part = (
+                                    escape_html(diff_part.line)
+                                    if isinstance(diff_part, DiffItemKeep)
+                                    else (
+                                        '<<ADDED>>{ins}<<ENDADDED>>'.format(ins=escape_html(diff_part.line))
+                                        if isinstance(diff_part, DiffItemInsert)
+                                        else ''
+                                    )
                                 )
                             )
-                        )
-                        if not isinstance(diff_part, DiffItemKeep):
-                            did_col_change = True
-                            if is_col_significant:
-                                did_significant_col_change = True
-                    reportline_row_lmdd[col_num] = cell_contents_upd_lmdd
-                    reportline_row_rmdd[col_num] = cell_contents_upd_rmdd
-                    did_any_col_change = did_any_col_change or did_col_change
-                    did_any_significant_col_change = did_any_significant_col_change or did_significant_col_change
-                else:
-                    raise Exception('cell contents, wrong data type (not a string); the row is {item_name}'.format(item_name=item_name))
+                            if not isinstance(diff_part, DiffItemKeep):
+                                did_col_change = True
+                                if is_col_significant:
+                                    did_significant_col_change = True
+                        reportline_row_lmdd[col_num] = cell_contents_upd_lmdd
+                        reportline_row_rmdd[col_num] = cell_contents_upd_rmdd
+                        did_any_col_change = did_any_col_change or did_col_change
+                        did_any_significant_col_change = did_any_significant_col_change or did_significant_col_change
+                    else:
+                        raise TypeError('cell contents, wrong data type (not a string); the row is {item_name}'.format(item_name=item_name))
 
-            diff_flag = ( 'diff' if did_any_significant_col_change else ( 'matches' if (not diff_flag or re.match(r'^\s*?\?*?\s*?$',diff_flag)) else diff_flag ) )
+                diff_flag = ( 'diff' if did_any_significant_col_change else ( 'matches' if (not diff_flag or re.match(r'^\s*?\?*?\s*?$',diff_flag)) else diff_flag ) )
 
-        # variable that holds row that will be added to the report
-        # as mentioned above, the first cell is an indication if it was aaded, removed, then come question name, then other labels and fields
-        report_line = [ diff_flag, item_name, *reportline_row_lmdd, *reportline_row_rmdd ]
+            # variable that holds row that will be added to the report
+            # as mentioned above, the first cell is an indication if it was aaded, removed, then come question name, then other labels and fields
+            report_line = [ diff_flag, item_name, *reportline_row_lmdd, *reportline_row_rmdd ]
 
-        # now add the append that "report_line" variable to
-        records.append(report_line)
+            # now add the append that "report_line" variable to
+            records.append(report_line)
+        except Exception as e:
+            try:
+                print('failed at line {line}'.format(line=unescape_html(elem.line)))
+            except:
+                pass
+            raise e
 
     # add "records" to the report
     result['Records'] = records
@@ -735,32 +838,32 @@ def find_diff_jsonstr(json_lmdd,json_rmdd):
 
 
 if __name__ == "__main__":
-	start_time = datetime.utcnow()
-	input_json_lmdd = None
-	input_json_rmdd = None
-	if len(sys.argv)>2:
-		input_json_lmdd = sys.argv[1]
-		input_json_rmdd = sys.argv[2]
-	if (input_json_lmdd==None) or (input_json_rmdd==None):
-		raise Exception("MDM Diff: Input files are not specified")
-	if ((not os.path.isfile(input_json_lmdd)) or (not os.path.isfile(input_json_rmdd))):
-		raise Exception("MDM Diff: Input file is missing")
-	print("Creating diffed data...\n")
-	print("Loading input JSON data...\n")
-	f_lmdd = open(input_json_lmdd)
-	f_rmdd = open(input_json_rmdd)
-	print("Reading JSON...\n")
-	report_lmdd = json.load(f_lmdd)
-	report_rmdd = json.load(f_rmdd)
-	print("Working...\n")
-	output = find_diff_jsonstr(report_lmdd,report_rmdd)
-	report_file_name = 'report.diff-report.{mdd_lmdd}-{mdd_rmdd}.json'.format(
+    start_time = datetime.utcnow()
+    input_json_lmdd = None
+    input_json_rmdd = None
+    if len(sys.argv)>2:
+        input_json_lmdd = sys.argv[1]
+        input_json_rmdd = sys.argv[2]
+    if (input_json_lmdd==None) or (input_json_rmdd==None):
+        raise Exception("MDM Diff: Input files are not specified")
+    if ((not os.path.isfile(input_json_lmdd)) or (not os.path.isfile(input_json_rmdd))):
+        raise Exception("MDM Diff: Input file is missing")
+    print("Creating diffed data...\n")
+    print("Loading input JSON data...\n")
+    f_lmdd = open(input_json_lmdd)
+    f_rmdd = open(input_json_rmdd)
+    print("Reading JSON...\n")
+    report_lmdd = json.load(f_lmdd)
+    report_rmdd = json.load(f_rmdd)
+    print("Working...\n")
+    output = find_diff_jsonstr(report_lmdd,report_rmdd)
+    report_file_name = 'report.diff-report.{mdd_lmdd}-{mdd_rmdd}.json'.format(
         mdd_lmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.json\s*?$','',input_json_lmdd)),
         mdd_rmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.json\s*?$','',input_json_rmdd))
     )
-	print("Writing results...\n")
-	with open(report_file_name,'w') as output_file:
-		output_file.write(output)
-	end_time = datetime.utcnow()
-	#elapsed_time = end_time - start_time
-	print("Finished") # + str(elapsed_time)
+    print("Writing results...\n")
+    with open(report_file_name,'w') as output_file:
+        output_file.write(output)
+    end_time = datetime.utcnow()
+    #elapsed_time = end_time - start_time
+    print("Finished") # + str(elapsed_time)

@@ -65,6 +65,12 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
             width: 1500px;
         }
     }
+    @media all and (min-width: 1800px) {
+        .container {
+            margin: 0 auto 0;
+            width: 1700px;
+        }
+    }
     h1 {
         font-weight: 700;
         font-size: 32px;
@@ -98,6 +104,18 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
     line-height: 16px;
     border-collapse: collapse; border-spacing: 1px;
     border: 1px #ddd solid;
+}
+.mdmreport-table { min-width: 100%; max-width: 100%; width: 100%; }
+
+.mdmreport-table tr td {
+	vertical-align: top;
+}
+
+.mdmreportpage-type-MDDDiff .mdmreport-table td.mdmreport-cols-col-0 {
+	/* width: 123em; */
+	padding: 0.25em;
+	/*font-size: 89%;*/
+	width: 5em; min-width: 5em; max-width: 5em;
 }
 
 .mdmreport-table .mdmreport-record {
@@ -176,10 +194,22 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
 .mdmreport-table .mdmreport-record.mdmdiff-diff {
     background: #ffe49c;
 }
+.mdmreport-table .mdmreport-record.mdmdiff-diff.mdmreport-contenttype-routing, .mdmreport-table .mdmreport-record.mdmdiff-diff.mdmreport-contenttype-routing {
+	background: #f0f0f0;
+}
+.mdmreport-contenttype-routing .mdmreport-format-multiline br {
+	display: none;
+}
+.mdmreport-contenttype-routing .mdmreport-format-multiline {
+	white-space: pre;
+}
 .mdmdiff-inlineoverlay-added { background: #6bc795; }
 .mdmdiff-inlineoverlay-removed { background: #f59278; }
 .mdmdiff-inlineoverlay-diff { background: #edbf45; }
 
+.mdmreport-format-multiline {
+	white-space: nowrap;
+}
 
 /* controls */
 
@@ -442,19 +472,25 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
         try {
             const rowEl = event.detail.rowEl;
             const colsEl = event.detail.colsEl;
-            if(!(colsEl.length>0)) { (()=>{ try { errorBannerEl.innerHTML = errorBannerEl.innerHTML + `Warning: css diff classes: no first col<br />`; } catch(ee) {}; throw new Error('Warning: no first col'); })(); return; };
-            const colFirstEl = [colsEl[0]];
-            const diffflag =  colFirstEl[0].innerText||colFirstEl[0].textContent;
-            if( /^\\s*?added\\s*?$/.test(diffflag) )
+            if(!(colsEl.length>1)) { (()=>{ try { errorBannerEl.innerHTML = errorBannerEl.innerHTML + `Warning: css diff classes: no first col<br />`; } catch(ee) {}; throw new Error('Warning: no first col'); })(); return; };
+            const colFirstEl = colsEl[0];
+            const colItemnameEl = colsEl[1];
+            const diffFlagText =  colFirstEl.innerText||colFirstEl.textContent;
+            const isSpecialItemIndicator = (itemName=>{if(/^\s*?RoutingLine\.Routing/.test(itemName)) return 'routing'; return null;})(colItemnameEl.innerText||colItemnameEl.textContent);
+            if( /^\\s*?added\\s*?$/.test(diffFlagText) )
                 rowEl.classList.add('mdmdiff-added');
-            else if( /^\\s*?removed\\s*?$/.test(diffflag) )
+            else if( /^\\s*?removed\\s*?$/.test(diffFlagText) )
                 rowEl.classList.add('mdmdiff-removed');
-            else if( /^\\s*?diff\\s*?$/.test(diffflag) )
+            else if( /^\\s*?diff\\s*?$/.test(diffFlagText) )
                 rowEl.classList.add('mdmdiff-diff');
-            else if( /^\\s*?\\(\\s*?moved\\s*?\\)\\s*?$/.test(diffflag) )
+            else if( /^\\s*?\\(\\s*?moved\\s*?\\)\\s*?$/.test(diffFlagText) )
                 rowEl.classList.add('mdmdiff-ghost');
-            else if( /^\\s*?\\(\\s*?info\\s*?\\)\\s*?$/.test(diffflag) )
+            else if( /^\\s*?\\(\\s*?info\\s*?\\)\\s*?$/.test(diffFlagText) )
                 rowEl.classList.add('mdmdiff-ghost');
+            if(isSpecialItemIndicator=='routing') {
+            	colsEl.forEach(colEl=>colEl.classList.add('mdmreport-format-multiline'));
+				rowEl.classList.add('mdmreport-contenttype-routing')
+			}
         } catch(e) {
             try {
                 errorBannerEl.innerHTML = errorBannerEl.innerHTML + `Error: ${e}<br />`;
