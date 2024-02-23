@@ -1,14 +1,11 @@
 
-import sys, os
-import json, re
+import sys, os, re
 from datetime import datetime
+import json
+import xml.etree.ElementTree as ET
+import html
 
 from collections import namedtuple
-
-
-
-
-
 
 
 
@@ -20,6 +17,56 @@ def escape_html(s):
 def unescape_html(s):
     return re.sub(r'&\#(\d+);',lambda m: '{result}'.format(result=chr(int(m[1]))),s)
 
+# def unescape_input_str_json(s):
+#     return unescape_html(s)
+
+# def unescape_input_str_xml(s):
+#     return '{s}'.format(s=s)
+
+# explanation:
+# the data we are getting from input files, does it have texts with html tags escaped?
+# when we were using json, it WAS escaped, because it was easier to produce correct json
+# now, as we are using xml, we don't have it escaped, because this way processing is much faster, we don't have to make any text transformations in mrs script
+# so, do we have to unescape input tags first?
+# we have to ways to go
+# 1. unescape or not depending on input format,
+# or, 2. prep input data first so that it follows the same format, escaped or unescaped
+# going path #1 is complicated, because we'll have to pass some additional param indicating which data type is it, for both left and right file
+# so, path #2 is easier
+# that's why I added prep_text_ftm to parse_xml that escapes all html and makes the format identical to what we had in json before
+unescape_input_str = unescape_html
+
+
+def parse_xml(node):
+    def prep_text_fmt(s):
+        return escape_html(s)
+    ans = None
+    if re.match(r'^\s*?Row\s*?$',node.tag,flags=re.DOTALL|re.ASCII|re.I):
+        ans = []
+        for child in node:
+            ans.append(parse_xml(child))
+    elif re.match(r'^\s*?Col\s*?$',node.tag,flags=re.DOTALL|re.ASCII|re.I):
+        ans = prep_text_fmt(node.text)
+    else:
+        ans = {}
+        for child in node:
+            if re.match(r'^\s*?(?:Row|Col)\s*?$',child.tag,flags=re.DOTALL|re.ASCII|re.I):
+                if not isinstance(ans, list):
+                    if len(ans)==0:
+                        ans = []
+                    else:
+                        raise ValueError('XML format: adding row and non-row item, or col and non-col item, tag = {tag}.format(tag=child.tag)')
+                ans.append(parse_xml(child))
+            elif len(child) == 0:
+                ans[child.tag] = (child.text)
+            elif child.tag not in ans:
+                ans[child.tag] = parse_xml(child)
+            elif not isinstance(ans[child.tag], list):
+                ans[child.tag] = [ans[child.tag]]
+                ans[child.tag].append(parse_xml(child))
+            else:
+                ans[child.tag].append(parse_xml(child))
+    return ans
 
 
 def split_words(s):
@@ -446,8 +493,8 @@ class Myers:
 
 
 
-# the function to create data for the final report, and return it in json
-def find_diff_jsonstr(json_lmdd,json_rmdd):
+# the function to create data for the final report; result will be written as json
+def find_diff(input_data_lmdd,input_data_rmdd):
 
     time_start = datetime.utcnow()
 
@@ -456,24 +503,24 @@ def find_diff_jsonstr(json_lmdd,json_rmdd):
     result = {
         "ReportType": "MDDDiff",
         "MDMREPSCRIPT": "true",
-        "MDD_LEFT": json_lmdd['MDD'],
-        "MDD_RIGHT": json_rmdd['MDD'],
+        "MDD_LEFT": input_data_lmdd['MDD'],
+        "MDD_RIGHT": input_data_rmdd['MDD'],
         "DateTimeReportGenerated": str(datetime.utcnow()),
         "MDMREP_SCRIPT_VER": "latest",
         "FileProperties": {
-            "ReportTitle": "MDM&#32;Diff&#32;{mdd_lmdd}&#32;vs&#32;{mdd_rmdd}".format(mdd_lmdd=json_lmdd['MDD'],mdd_rmdd=json_rmdd['MDD']),
-            "ReportHeading": "MDM&#32;Diff&#32;{mdd_lmdd}&#32;vs&#32;{mdd_rmdd}".format(mdd_lmdd=json_lmdd['MDD'],mdd_rmdd=json_rmdd['MDD']),
+            "ReportTitle": "MDM&#32;Diff&#32;{mdd_lmdd}&#32;vs&#32;{mdd_rmdd}".format(mdd_lmdd=input_data_lmdd['MDD'],mdd_rmdd=input_data_rmdd['MDD']),
+            "ReportHeading": "MDM&#32;Diff&#32;{mdd_lmdd}&#32;vs&#32;{mdd_rmdd}".format(mdd_lmdd=input_data_lmdd['MDD'],mdd_rmdd=input_data_rmdd['MDD']),
             "ReportInfo": [
                 escape_html('Hi! Please see the diff below.'),
-                '{part1}{part2}{part3}{part4}{part5}'.format(part1=escape_html('Left MDD: '),part2=json_lmdd['MDD'],part3=escape_html(', right MDD: '),part4=json_rmdd['MDD'],part5=''),
+                '{part1}{part2}{part3}{part4}{part5}'.format(part1=escape_html('Left MDD: '),part2=input_data_lmdd['MDD'],part3=escape_html(', right MDD: '),part4=input_data_rmdd['MDD'],part5=''),
                 "Run&#58;&#32;{t}".format(t=escape_html(str(datetime.utcnow())))
             ]
         }
     }
 
     # here we check what columns are in input data files and create a combined column set that will be used in report
-    columns_headers_lmdd = [ '{s}'.format(s=str(s)) for s in (json_lmdd['ColumnHeaders'] if 'ColumnHeaders'in json_lmdd else [''])[0:] ]
-    columns_headers_rmdd = [ '{s}'.format(s=str(s)) for s in (json_rmdd['ColumnHeaders'] if 'ColumnHeaders'in json_rmdd else [''])[0:] ]
+    columns_headers_lmdd = [ '{s}'.format(s=str(s)) for s in (input_data_lmdd['ColumnHeaders'] if 'ColumnHeaders'in input_data_lmdd else [''])[0:] ]
+    columns_headers_rmdd = [ '{s}'.format(s=str(s)) for s in (input_data_rmdd['ColumnHeaders'] if 'ColumnHeaders'in input_data_rmdd else [''])[0:] ]
     columns_headers_check = []
     # combine left and right exclusing duplicates
     for col in columns_headers_lmdd[1:]:
@@ -504,8 +551,8 @@ def find_diff_jsonstr(json_lmdd,json_rmdd):
     result['ColumnHeaders'] = [*['Diff&#32;flag','Item&#32;name&#44;&#32;or&#32;path'],*['&#40;Left&#32;MDD&#41;&#32;{col}'.format(col=col) for col in columns_headers_check],*['&#40;Right&#32;MDD&#41;&#32;{col}'.format(col=col) for col in columns_headers_check]]
 
     # "records" is the list of records in left and right input files
-    records_lmdd = (json_lmdd['Records'] if 'Records' in json_lmdd else [])
-    records_rmdd = (json_rmdd['Records'] if 'Records' in json_rmdd else [])
+    records_lmdd = (input_data_lmdd['Records'] if 'Records' in input_data_lmdd else [])
+    records_rmdd = (input_data_rmdd['Records'] if 'Records' in input_data_rmdd else [])
     # and "rows" are the same as records but not the whole row with cells for labels, properties, translations but just the first cell that is a question or category name, i.e. item name
     rows_lmdd = [ row[0] for row in records_lmdd ]
     rows_rmdd = [ row[0] for row in records_rmdd ]
@@ -514,16 +561,6 @@ def find_diff_jsonstr(json_lmdd,json_rmdd):
 
     # and "records" is the variable for total records that we return in the report
     records = []
-
-    # # temporary - save compared parts to files
-    # report_file_name = 'a_test.json'
-    # print("Writing results...\n")
-    # with open(report_file_name,'w') as output_file:
-    #     output_file.write(json.dumps(rows_lmdd))
-    # report_file_name = 'b_test.json'
-    # print("Writing results...\n")
-    # with open(report_file_name,'w') as output_file:
-    #     output_file.write(json.dumps(rows_rmdd))
 
     # go!
     # calculate diff
@@ -659,8 +696,8 @@ def find_diff_jsonstr(json_lmdd,json_rmdd):
                             diff_col = []
                             # cell_contents_upd_lmdd = cell_contents_lmdd
                             # cell_contents_upd_rmdd = cell_contents_rmdd
-                            cell_contents_splitwords_lmdd = [unescape_html(cell_contents_lmdd)]
-                            cell_contents_splitwords_rmdd = [unescape_html(cell_contents_rmdd)]
+                            cell_contents_splitwords_lmdd = [unescape_input_str(cell_contents_lmdd)]
+                            cell_contents_splitwords_rmdd = [unescape_input_str(cell_contents_rmdd)]
                             cell_contents_upd_lmdd = ''
                             cell_contents_upd_rmdd = ''
                             diff_col_records = Myers.to_records(diff_col,cell_contents_splitwords_lmdd,cell_contents_splitwords_rmdd)
@@ -668,18 +705,18 @@ def find_diff_jsonstr(json_lmdd,json_rmdd):
                         else:
                             # TODO: split LINES!
                             ## old code, for reference:
-                            #cell_contents_splitwords_lmdd = split_words(unescape_html(cell_contents_lmdd))
-                            #cell_contents_splitwords_rmdd = split_words(unescape_html(cell_contents_rmdd))
+                            #cell_contents_splitwords_lmdd = split_words(unescape_input_str(cell_contents_lmdd))
+                            #cell_contents_splitwords_rmdd = split_words(unescape_input_str(cell_contents_rmdd))
                             #diff_col = Myers.diff(cell_contents_splitwords_lmdd,cell_contents_splitwords_rmdd,{'compare':'array'})
                             #cell_contents_upd_lmdd = ''
                             #cell_contents_upd_rmdd = ''
                             # new code:
                             # The goal of this updated code is to normalize line breaks - if we have a piece of text removed, then we are adding an emty string with similar numer of linebreaks so that it aligns in the final report
                             # The primary goal is to have readable diff in routing, but it also applies to custom properties too
-                            cell_contents_fulltext_lmdd = unescape_html(cell_contents_lmdd)
+                            cell_contents_fulltext_lmdd = unescape_input_str(cell_contents_lmdd)
                             cell_contents_lines_lmdd = re.sub(r'(?:&#60|<)(?:&#60|<)HIDDENLINEBREAK(?:&#62|>)(?:&#62|>)\r?\n?',"\n",cell_contents_fulltext_lmdd,flags=re.DOTALL|re.ASCII|re.I)
                             cell_contents_lines_lmdd = [ '{line}{linebreak}'.format(line=line,linebreak="\n") for line in cell_contents_lines_lmdd.split("\n") ]
-                            cell_contents_fulltext_rmdd = unescape_html(cell_contents_rmdd)
+                            cell_contents_fulltext_rmdd = unescape_input_str(cell_contents_rmdd)
                             cell_contents_lines_rmdd = re.sub(r'(?:&#60|<)(?:&#60|<)HIDDENLINEBREAK(?:&#62|>)(?:&#62|>)\r?\n?',"\n",cell_contents_fulltext_rmdd,flags=re.DOTALL|re.ASCII|re.I)
                             cell_contents_lines_rmdd =  [ '{line}{linebreak}'.format(line=line,linebreak="\n") for line in cell_contents_lines_rmdd.split("\n") ]
                             # TODO: compare as lines
@@ -823,7 +860,7 @@ def find_diff_jsonstr(json_lmdd,json_rmdd):
             records.append(report_line)
         except Exception as e:
             try:
-                print('failed at line {line}'.format(line=unescape_html(elem.line)))
+                print('failed at line {line}'.format(line=unescape_input_str(elem.line)))
             except:
                 pass
             raise e
@@ -832,34 +869,57 @@ def find_diff_jsonstr(json_lmdd,json_rmdd):
     result['Records'] = records
     print('Done. Writing result...\n')
 
-    # and return the report in json
-    return json.dumps(result)
+    # and return the report
+    return result
 
 
 
 if __name__ == "__main__":
+    def load_data(input_map_filename):
+        report = None
+        input_fmt = None
+        if re.match(r'.*\.json\s*?$',input_map_filename,flags=re.DOTALL|re.ASCII|re.I):
+            input_fmt = 'json'
+        elif re.match(r'.*\.xml\s*?$',input_map_filename,flags=re.DOTALL|re.ASCII|re.I):
+            input_fmt = 'xml'
+        print('Loading input data for "{fname}, fmt = {fmt}"...'.format(fname=input_map_filename,fmt=input_fmt))
+        input_map_file = open(input_map_filename)
+        if input_fmt=='json':
+            print("Reading JSON...\n")
+            #preptext_html = preptext_html_alreadyescaped
+            report = json.load(input_map_file)
+        elif input_fmt=='xml':
+            print("Reading XML...\n")
+            #preptext_html = preptext_html_needsescaping
+            report = ET.parse(input_map_file)
+            report = report.getroot()
+            report = parse_xml(report)
+            #report = report['Root']
+        else:
+            raise IOError("Failed to recognize input format, json/xml/or something different")
+        input_map_file = None
+        return report
+    
     start_time = datetime.utcnow()
-    input_json_lmdd = None
-    input_json_rmdd = None
-    if len(sys.argv)>2:
-        input_json_lmdd = sys.argv[1]
-        input_json_rmdd = sys.argv[2]
-    if (input_json_lmdd==None) or (input_json_rmdd==None):
-        raise Exception("MDM Diff: Input files are not specified")
-    if ((not os.path.isfile(input_json_lmdd)) or (not os.path.isfile(input_json_rmdd))):
-        raise Exception("MDM Diff: Input file is missing")
     print("Creating diffed data...\n")
-    print("Loading input JSON data...\n")
-    f_lmdd = open(input_json_lmdd)
-    f_rmdd = open(input_json_rmdd)
-    print("Reading JSON...\n")
-    report_lmdd = json.load(f_lmdd)
-    report_rmdd = json.load(f_rmdd)
+
+    input_input_data_lmdd = None
+    input_input_data_rmdd = None
+    if len(sys.argv)>2:
+        input_input_data_lmdd = sys.argv[1]
+        input_input_data_rmdd = sys.argv[2]
+    if (input_input_data_lmdd==None) or (input_input_data_rmdd==None):
+        raise Exception("MDM Diff: Input files are not specified")
+    if ((not os.path.isfile(input_input_data_lmdd)) or (not os.path.isfile(input_input_data_rmdd))):
+        raise Exception("MDM Diff: Input file is missing")
+    report_lmdd = load_data(input_input_data_lmdd)
+    report_rmdd = load_data(input_input_data_rmdd)
     print("Working...\n")
-    output = find_diff_jsonstr(report_lmdd,report_rmdd)
+    output = find_diff(report_lmdd,report_rmdd)
+    output = json.dumps(output)
     report_file_name = 'report.diff-report.{mdd_lmdd}-{mdd_rmdd}.json'.format(
-        mdd_lmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.json\s*?$','',input_json_lmdd)),
-        mdd_rmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.json\s*?$','',input_json_rmdd))
+        mdd_lmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.(?:json|xml)\s*?$','',input_input_data_lmdd)),
+        mdd_rmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.(?:json|xml)\s*?$','',input_input_data_rmdd))
     )
     print("Writing results...\n")
     with open(report_file_name,'w') as output_file:

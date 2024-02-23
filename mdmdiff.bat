@@ -21,8 +21,8 @@ REM SET "MDD_B=P200138_auto_11-16-2022.mdd"
 REM get reports
 ECHO -
 ECHO "- Getting report for MDD_A %MDD_A%"
-SET "REPORT_A=report.%MDD_A%.json"
-SET "REPORT_B=report.%MDD_B%.json"
+SET "REPORT_A=report.%MDD_A%.xml"
+SET "REPORT_B=report.%MDD_B%.xml"
 REM :: possible params:
 REM ::  "/a:RUN_FEATURES=label,properties,translations,scripting"
 REM ::  /d:RUN_SECTIONS=119
