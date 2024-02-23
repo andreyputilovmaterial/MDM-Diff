@@ -1,33 +1,74 @@
 
-import sys, os
-import json, re
+import sys, os, re
 from datetime import datetime
+import json
+import xml.etree.ElementTree as ET
+import html
 
 
 
 
-def val(s):
+def preptext_html_alreadyescaped(s):
     if re.match(r'[<>]',re.sub(r'(?:<<(?:ADDED|ENDADDED|REMOVED|ENDREMOVED)>>|&#60;&#60;HIDDENLINEBREAK&#62;&#62;)','',s)):
-        raise Exception('Create HTML report: Field values should already be escaped in Json. Some field contains "<" or ">". Please revise: {field}'.format(field=s))
+        raise Exception('Create HTML report: Field values should already be escaped in the input source. Some field contains "<" or ">". Please revise: {field}'.format(field=s))
     return re.sub(r'<<ADDED>>','<span class="mdmdiff-inlineoverlay-added">',re.sub(r'<<REMOVED>>','<span class="mdmdiff-inlineoverlay-removed">',re.sub(r'<<(?:ENDADDED|ENDREMOVED)>>','</span>',re.sub(r'&#60;&#60;HIDDENLINEBREAK&#62;&#62;','<!-- HIDDENLINEBREAK --><br />',s))))
+
+def preptext_html_needsescaping(s):
+    s = re.sub(r'(?:&#60;|<)(?:&#60;|<)HIDDENLINEBREAK(?:&#62;|>)(?:&#62;|>)','<!-- HIDDENLINEBREAK --><br />',s)
+    s = html.escape(s)
+    return s.replace(html.escape('<<ADDED>>'),'<span class="mdmdiff-inlineoverlay-added">').replace(html.escape('<<REMOVED>>'),'<span class="mdmdiff-inlineoverlay-removed">').replace(html.escape('<<ENDADDED>>'),'replacement').replace(html.escape('<<ENDREMOVED>>'),'</span>').replace(html.escape('<!-- HIDDENLINEBREAK --><br />'),'<!-- HIDDENLINEBREAK --><br />')
+
+# def preptext_html(s):
+#     return preptext_html_needsescaping(s) if needsescaping else preptext_html_alreadyescaped(s)
+preptext_html = None
+
+
+def parse_xml(node):
+    ans = None
+    if re.match(r'^\s*?Row\s*?$',node.tag,flags=re.DOTALL|re.ASCII|re.I):
+        ans = []
+        for child in node:
+            ans.append(parse_xml(child))
+    elif re.match(r'^\s*?Col\s*?$',node.tag,flags=re.DOTALL|re.ASCII|re.I):
+        ans = node.text
+    else:
+        ans = {}
+        for child in node:
+            if re.match(r'^\s*?(?:Row|Col)\s*?$',child.tag,flags=re.DOTALL|re.ASCII|re.I):
+                if not isinstance(ans, list):
+                    if len(ans)==0:
+                        ans = []
+                    else:
+                        raise ValueError('XML format: adding row and non-row item, or col and non-col item, tag = {tag}.format(tag=child.tag)')
+                ans.append(parse_xml(child))
+            elif len(child) == 0:
+                ans[child.tag] = child.text
+            elif child.tag not in ans:
+                ans[child.tag] = parse_xml(child)
+            elif not isinstance(ans[child.tag], list):
+                ans[child.tag] = [ans[child.tag]]
+                ans[child.tag].append(parse_xml(child))
+            else:
+                ans[child.tag].append(parse_xml(child))
+    return ans
 
 
 def create_html(report):
-
+    #print(report)
     fields_is_mdmreport = ( re.match(r'^\s*?true\s*?$',report['MDMREPSCRIPT']) )
 
-    fields_mdmreporttype = val(report['ReportType'])
+    fields_mdmreporttype = preptext_html(report['ReportType'])
 
     fields_mdmreporttype_allowed = ['MDDFields','MDDDiff','MDDSTK']
     if not fields_mdmreporttype in fields_mdmreporttype_allowed:
-        raise Exception('The report type is "{val}" and is not recognized; allowed are only {types}'.format(val=fields_mdmreporttype,types=','.join(fields_mdmreporttype_allowed)))
+        raise Exception('The report type is "{reptype}" and is not recognized; allowed are only {types}'.format(reptype=fields_mdmreporttype,types=','.join(fields_mdmreporttype_allowed)))
 
     if not fields_is_mdmreport:
-        raise Exception("JSON does not pass validation")
+        raise Exception("Field map (json/xml/or similar formats) does not pass validation")
 
-    # fields_MDD = val(report['MDD'])
-    fields_File_ReportTitle = val(report['FileProperties']['ReportTitle']) if (('FileProperties' in report) and ('ReportTitle' in report['FileProperties'])) else 'MDD Diff'
-    fields_File_ReportHeading = val(report['FileProperties']['ReportHeading']) if (('FileProperties' in report) and ('ReportHeading' in report['FileProperties'])) else 'MDD Diff'
+    # fields_MDD = preptext_html(report['MDD'])
+    fields_File_ReportTitle = preptext_html(report['FileProperties']['ReportTitle']) if (('FileProperties' in report) and ('ReportTitle' in report['FileProperties'])) else 'MDD Diff'
+    fields_File_ReportHeading = preptext_html(report['FileProperties']['ReportHeading']) if (('FileProperties' in report) and ('ReportHeading' in report['FileProperties'])) else 'MDD Diff'
     fields_File_ReportInfo = report['FileProperties']['ReportInfo'] if (('FileProperties' in report) and ('ReportInfo' in report['FileProperties'])) else ['']
 
     TEMPLATE_HTML_CSS_NORMALIZECSS = """
@@ -105,17 +146,19 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
     border-collapse: collapse; border-spacing: 1px;
     border: 1px #ddd solid;
 }
-.mdmreport-table { min-width: 100%; max-width: 100%; width: 100%; }
+
+.mdmreport-table { width: 100%; min-width: 100%; max-width: 100%; }
 
 .mdmreport-table tr td {
-	vertical-align: top;
+    vertical-align: top;
 }
 
 .mdmreportpage-type-MDDDiff .mdmreport-table td.mdmreport-cols-col-0 {
-	/* width: 123em; */
-	padding: 0.25em;
-	/*font-size: 89%;*/
-	width: 5em; min-width: 5em; max-width: 5em;
+    padding: 0.25em;
+    /* font-size: 89%; */
+    width: 5em; min-width: 5em; max-width: 5em;
+    overflow-x: hidden;
+    white-space: nowrap;
 }
 
 .mdmreport-table .mdmreport-record {
@@ -194,21 +237,20 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
 .mdmreport-table .mdmreport-record.mdmdiff-diff {
     background: #ffe49c;
 }
-.mdmreport-table .mdmreport-record.mdmdiff-diff.mdmreport-contenttype-routing, .mdmreport-table .mdmreport-record.mdmdiff-diff.mdmreport-contenttype-routing {
-	background: #f0f0f0;
-}
-.mdmreport-contenttype-routing .mdmreport-format-multiline br {
-	display: none;
-}
-.mdmreport-contenttype-routing .mdmreport-format-multiline {
-	white-space: pre;
+.mdmreport-table .mdmreport-record.mdmdiff-diff.mdmdiff-specialtype-routing, .mdmreport-table .mdmreport-record.mdmdiff-diff.mdmdiff-specialtype-routing:hover {
+    background: #fffef0;
 }
 .mdmdiff-inlineoverlay-added { background: #6bc795; }
 .mdmdiff-inlineoverlay-removed { background: #f59278; }
 .mdmdiff-inlineoverlay-diff { background: #edbf45; }
 
 .mdmreport-format-multiline {
-	white-space: nowrap;
+    /* white-space: nowrap; */
+    white-space: pre;
+    white-space: pre;
+}
+.mdmreport-format-multiline br {
+    display: none;
 }
 
 /* controls */
@@ -458,10 +500,57 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
 </script>
     """
 
-    TEMPLATE_HTML_JSONDIFF_SCRIPTS = """
+    TEMPLATE_HTML_DIFF_SCRIPTS = """
 <script>
     /* === add diff classes to rows based on the first cell contents in each row, it contains "diff"/"added"/"removed"/"(info)" texts, js === */
 (function() {
+    const colTypesPromiseResolvers = {
+        resolve: () => { throw new Error('please init first') },
+        reject: () => { throw new Error('please init first') }
+    };
+    const colTypesPromise = new Promise( (resolve,reject) => { colTypesPromiseResolvers.resolve=resolve; colTypesPromiseResolvers.reject=reject; });
+    function detectColTypes(event){
+        let errorBannerEl;
+        try {
+            errorBannerEl = event.detail.errorBannerEl;
+        } catch(e) {
+            throw e;
+        }
+        try {
+            const tableEl = event.detail.tableEl;
+            const headerRowsEl = tableEl.querySelectorAll('tr:is(:first-child)');
+            const headerRowEl = ( headerRowsEl.length>0 ? headerRowsEl[0] : (()=>{throw new Error('first row with column types not found!');})() );
+            const result = {
+                colsDiffFlag: [],
+                colsItemName: [],
+                colsLabel: [],
+                colsProperties: [],
+                colsTranslations: []
+            };
+            const unescapeLabel = t => t.replace(/&\\#(\\d+);/ig,(str,m)=>String.fromCharCode(+m)).replace(/^\\s*?(?:\\(\\s*?(?:left|right)\\s+mdd\\s*?\\))?\\s*/ig,'');
+            Array.prototype.forEach.call(headerRowEl.querySelectorAll('td'),function(colEl,colIndex) {
+                colCleanText = unescapeLabel(colEl.innerText||colEl.textContent);
+                if( colIndex==0 ) {
+                    result.colsDiffFlag.push(colIndex);
+                } else if(/item\\s+name/ig.test(colCleanText)&&(colIndex===1)) {
+                    result.colsItemName.push(colIndex);
+                } else if(/^\\s*?label\\b/ig.test(colCleanText)) {
+                    result.colsLabel.push(colIndex);
+                } else if(/properties/ig.test(colCleanText)) {
+                    result.colsProperties.push(colIndex);
+                } else if(/^\\s*?translat\\w*.*?\\(/ig.test(colCleanText)) {
+                    result.colsTranslations.push(colIndex);
+                }
+            });
+            colTypesPromiseResolvers.resolve(result);
+        } catch(e) {
+            try {
+                errorBannerEl.innerHTML = errorBannerEl.innerHTML + `Error: ${e}<br />`;
+            } catch(ee) {};
+            throw e;
+        }
+    }
+    document.addEventListener('mdmreport-oninit',detectColTypes);
     function process(event){
         let errorBannerEl;
         try {
@@ -471,26 +560,49 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
         }
         try {
             const rowEl = event.detail.rowEl;
-            const colsEl = event.detail.colsEl;
-            if(!(colsEl.length>1)) { (()=>{ try { errorBannerEl.innerHTML = errorBannerEl.innerHTML + `Warning: css diff classes: no first col<br />`; } catch(ee) {}; throw new Error('Warning: no first col'); })(); return; };
-            const colFirstEl = colsEl[0];
-            const colItemnameEl = colsEl[1];
-            const diffFlagText =  colFirstEl.innerText||colFirstEl.textContent;
-            const isSpecialItemIndicator = (itemName=>{if(/^\s*?RoutingLine\.Routing/.test(itemName)) return 'routing'; return null;})(colItemnameEl.innerText||colItemnameEl.textContent);
-            if( /^\\s*?added\\s*?$/.test(diffFlagText) )
-                rowEl.classList.add('mdmdiff-added');
-            else if( /^\\s*?removed\\s*?$/.test(diffFlagText) )
-                rowEl.classList.add('mdmdiff-removed');
-            else if( /^\\s*?diff\\s*?$/.test(diffFlagText) )
-                rowEl.classList.add('mdmdiff-diff');
-            else if( /^\\s*?\\(\\s*?moved\\s*?\\)\\s*?$/.test(diffFlagText) )
-                rowEl.classList.add('mdmdiff-ghost');
-            else if( /^\\s*?\\(\\s*?info\\s*?\\)\\s*?$/.test(diffFlagText) )
-                rowEl.classList.add('mdmdiff-ghost');
-            if(isSpecialItemIndicator=='routing') {
-            	colsEl.forEach(colEl=>colEl.classList.add('mdmreport-format-multiline'));
-				rowEl.classList.add('mdmreport-contenttype-routing')
-			}
+            const colsEl = rowEl.querySelectorAll('td');
+            colTypesPromise.then(colIndicesByType=>{
+                colIndicesByType.colsDiffFlag.forEach(colIndex=>{
+                    const colEl = colsEl[colIndex];
+                    colContent = colEl.innerText||colEl.textContent;
+                    if( /^\\s*?added\\s*?$/.test(colContent) )
+                        rowEl.classList.add('mdmdiff-added');
+                    else if( /^\\s*?removed\\s*?$/.test(colContent) )
+                        rowEl.classList.add('mdmdiff-removed');
+                    else if( /^\\s*?diff\\s*?$/.test(colContent) )
+                        rowEl.classList.add('mdmdiff-diff');
+                    else if( /^\\s*?\\(\\s*?moved\\s*?\\)\\s*?$/.test(colContent) )
+                        rowEl.classList.add('mdmdiff-ghost');
+                    else if( /^\\s*?\\(\\s*?info\\s*?\\)\\s*?$/.test(colContent) )
+                        rowEl.classList.add('mdmdiff-ghost');
+                });
+                colIndicesByType.colsItemName.forEach(colIndex=>{
+                    const colEl = colsEl[colIndex];
+                    colContent = colEl.innerText||colEl.textContent;
+                    if(/^\\s*?RoutingLine\\.Routing\\s*?$/ig.test(colContent)) {
+                        colIndicesByType.colsLabel.forEach(colIndex=>{
+                            const colEl = colsEl[colIndex];
+                            colEl.classList.add('mdmreport-format-multiline');
+                        });
+                        rowEl.classList.add('mdmdiff-specialtype-routing');
+                    }
+                });
+                // colIndicesByType.colsLabel.forEach(colIndex=>{
+                //     const colEl = colsEl[colIndex];
+                //     colContent = colEl.innerText||colEl.textContent;
+                //     // nothing
+                // });
+                colIndicesByType.colsProperties.forEach(colIndex=>{
+                    const colEl = colsEl[colIndex];
+                    colContent = colEl.innerText||colEl.textContent;
+                    colEl.classList.add('mdmreport-format-multiline');
+                });
+                // colIndicesByType.colsTranslations.forEach(colIndex=>{
+                //     const colEl = colsEl[colIndex];
+                //     colContent = colEl.innerText||colEl.textContent;
+                //     // nothing
+                // });
+            });
         } catch(e) {
             try {
                 errorBannerEl.innerHTML = errorBannerEl.innerHTML + `Error: ${e}<br />`;
@@ -502,6 +614,9 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
     function cleanHandlers() {
         try {
             document.removeEventListener('mdmreport-onrow',process);
+        } catch(ee) {}
+        try {
+            document.removeEventListener('mdmreport-oninit',detectColTypes);
         } catch(ee) {}
         try {
             document.removeEventListener('mdmreport-onfinishedrowevents',cleanHandlers);
@@ -1116,7 +1231,7 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
             inp1El.addEventListener('keyup',function(event){  inp1El.dispatchEvent(new Event('change'));});
             inp2El.addEventListener('keyup',function(event){  inp2El.dispatchEvent(new Event('change'));});
             inp3El.addEventListener('keyup',function(event){  inp3El.dispatchEvent(new Event('change'));});
-            Promise.resolve().then(function(){getJobNumberProperty(tableEl,errorBannerEl).then(function(val){ const propertyJobNumber = `P${`${val}`.replace(/^\\s*?(P?)(\\d\\w+)\\s*?$/,'$2')}`; inp1El.value = propertyJobNumber; inp1El.dispatchEvent(new Event('change')); });});
+            Promise.resolve().then(function(){getJobNumberProperty(tableEl,errorBannerEl).then(function(vval){ const propertyJobNumber = `P${`${vval}`.replace(/^\\s*?(P?)(\\d\\w+)\\s*?$/,'$2')}`; inp1El.value = propertyJobNumber; inp1El.dispatchEvent(new Event('change')); });});
             const submitEl = bannerContentEl.querySelector('fieldset').querySelectorAll('input[type="button"]')[0];
             submitEl.addEventListener('click',function(event){
                 event.preventDefault();
@@ -1156,7 +1271,7 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
 </script>
     """
 
-    TEMPLATE_HTML_JSONDIFF_STYLES = """
+    TEMPLATE_HTML_DIFF_STYLES = """
     something
     """
 
@@ -1209,8 +1324,8 @@ AP
         TEMPLATE_HTML_STYLES = TEMPLATE_HTML_STYLES,
         TEMPLATE_HTML_STYLES_TABLE = TEMPLATE_HTML_STYLES_TABLE,
         ReportHeading = fields_File_ReportHeading,
-        banner = ''.join( [ '<p>{content}</p>'.format(content=val(content)) for content in fields_File_ReportInfo ] ),
-        ADD_SCRIPTS = '{allscripts}{fieldsreportscripts}{diffscripts}'.format(allscripts=TEMPLATE_HTML_SCRIPTS,fieldsreportscripts=TEMPLATE_HTML_FIELDSREPORT_SCRIPTS if fields_mdmreporttype=='MDDFields' else '',diffscripts=TEMPLATE_HTML_JSONDIFF_SCRIPTS if fields_mdmreporttype=='MDDDiff' else '')
+        banner = ''.join( [ '<p>{content}</p>'.format(content=preptext_html(content)) for content in fields_File_ReportInfo ] ),
+        ADD_SCRIPTS = '{allscripts}{fieldsreportscripts}{diffscripts}'.format(allscripts=TEMPLATE_HTML_SCRIPTS,fieldsreportscripts=TEMPLATE_HTML_FIELDSREPORT_SCRIPTS if fields_mdmreporttype=='MDDFields' else '',diffscripts=TEMPLATE_HTML_DIFF_SCRIPTS if fields_mdmreporttype=='MDDDiff' else '')
     )
 
     TEMPLATE_HTML_END = """
@@ -1226,11 +1341,11 @@ AP
     )
 
     report_contents_headerrow = '<tr class="mdmreport-record">{columns}</tr>'.format(
-        columns = ''.join(['<td class="mdmreport-contentcell">{col}</td>'.format(col=val(col)) for col in (report['ColumnHeaders'] if 'ColumnHeaders' in report else [''])])
+        columns = ''.join(['<td class="mdmreport-contentcell">{col}</td>'.format(col=preptext_html(col)) for col in (report['ColumnHeaders'] if 'ColumnHeaders' in report else [''])])
     );
 
     report_contents = ''.join( [ '<tr class="mdmreport-record">{columns}</tr>'.format(
-        columns = ''.join(['<td class="mdmreport-contentcell">{col}</td>'.format(col=val(col)) for col in (row or [''])])
+        columns = ''.join(['<td class="mdmreport-contentcell">{col}</td>'.format(col=preptext_html(col)) for col in (row or [''])])
     ) for row in (report['Records'] if 'Records' in report else [['']]) ] )
 
     report_contents = '{table_begin}{table_header_row}{table_contents}{table_end}'.format(
@@ -1248,25 +1363,41 @@ AP
 
 
 if __name__ == "__main__":
-	start_time = datetime.utcnow()
-	input_json = None
-	if len(sys.argv)>1:
-		input_json = sys.argv[1]
-	if input_json==None:
-		raise Exception("Create HTML report: Input file is not specified")
-	if not os.path.isfile(input_json):
-		raise Exception("Create HTML report: Input file is missing")
-	print("Creating a report in html...\n")
-	print("Loading input JSON data...\n")
-	f = open(input_json)
-	print("Reading JSON...\n")
-	report = json.load(f)
-	print("Creating output layout...\n")
-	output = create_html(report)
-	report_file_name = re.sub(r'\.json\s*?$','.html',input_json)
-	print("Writing results...\n")
-	with open(report_file_name,'w', encoding="utf-8") as output_file:
-		output_file.write(output)
-	end_time = datetime.utcnow()
-	#elapsed_time = end_time - start_time
-	print("Finished") # + str(elapsed_time)
+    start_time = datetime.utcnow()
+    print("Creating a report in html...\n")
+    input_map_filename = None
+    if len(sys.argv)>1:
+        input_map_filename = sys.argv[1]
+    if input_map_filename==None:
+        raise Exception("Create HTML report: Input file is not specified")
+    if not os.path.isfile(input_map_filename):
+        raise Exception("Create HTML report: Input file is missing")
+    input_fmt = None
+    if re.match(r'.*\.json\s*?$',input_map_filename,flags=re.DOTALL|re.ASCII|re.I):
+        input_fmt = 'json'
+    elif re.match(r'.*\.xml\s*?$',input_map_filename,flags=re.DOTALL|re.ASCII|re.I):
+        input_fmt = 'xml'
+    print('Loading input data, fmt = {fmt}...'.format(fmt=input_fmt))
+    input_map_file = open(input_map_filename)
+    if input_fmt=='json':
+        print("Reading JSON...\n")
+        preptext_html = preptext_html_alreadyescaped
+        report = json.load(input_map_file)
+    elif input_fmt=='xml':
+        print("Reading XML...\n")
+        preptext_html = preptext_html_needsescaping
+        report = ET.parse(input_map_file)
+        report = report.getroot()
+        report = parse_xml(report)
+        #report = report['Root']
+    else:
+        raise IOError("Failed to recognize input format, json/xml/or something different")
+    print("Creating output layout...\n")
+    output = create_html(report)
+    report_file_name = re.sub(r'\.(?:json|xml)\s*?$','.html',input_map_filename)
+    print("Writing results...\n")
+    with open(report_file_name,'w', encoding="utf-8") as output_file:
+        output_file.write(output)
+    end_time = datetime.utcnow()
+    #elapsed_time = end_time - start_time
+    print("Finished") # + str(elapsed_time)
