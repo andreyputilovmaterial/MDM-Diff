@@ -31,6 +31,8 @@ def parse_xml(node):
             ans.append(parse_xml(child))
     elif re.match(r'^\s*?Col\s*?$',node.tag,flags=re.DOTALL|re.ASCII|re.I):
         ans = node.text
+        if ans is None:
+            ans = ''
     else:
         ans = {}
         for child in node:
@@ -43,6 +45,8 @@ def parse_xml(node):
                 ans.append(parse_xml(child))
             elif len(child) == 0:
                 ans[child.tag] = child.text
+                if ans[child.tag] is None:
+                    ans[child.tag] = ''
             elif child.tag not in ans:
                 ans[child.tag] = parse_xml(child)
             elif not isinstance(ans[child.tag], list):
@@ -238,7 +242,7 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
     background: #ffe49c;
 }
 .mdmreport-table .mdmreport-record.mdmdiff-diff.mdmdiff-specialtype-routing, .mdmreport-table .mdmreport-record.mdmdiff-diff.mdmdiff-specialtype-routing:hover {
-    background: #fffef0;
+    background: #f2f2f2;
 }
 .mdmdiff-inlineoverlay-added { background: #6bc795; }
 .mdmdiff-inlineoverlay-removed { background: #f59278; }
@@ -250,6 +254,9 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
     white-space: pre;
 }
 .mdmreport-format-multiline br {
+    display: none;
+}
+.mdmreport-format-hidden, .mdmreport-table .mdmreport-format-hidden {
     display: none;
 }
 
@@ -371,6 +378,60 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
 <script>
 (function() {
     /* === show/hide columns js === */
+    const colTypesPromiseResolvers = {
+        resolve: () => { throw new Error('please init first') },
+        reject: () => { throw new Error('please init first') }
+    };
+    const colTypesPromise = new Promise( (resolve,reject) => { colTypesPromiseResolvers.resolve=resolve; colTypesPromiseResolvers.reject=reject; });
+    function detectColTypes(event){
+        let errorBannerEl;
+        try {
+            errorBannerEl = event.detail.errorBannerEl;
+        } catch(e) {
+            throw e;
+        }
+        try {
+            const tableEl = event.detail.tableEl;
+            const headerRowsEl = tableEl.querySelectorAll('tr:is(:first-child)');
+            const headerRowEl = ( headerRowsEl.length>0 ? headerRowsEl[0] : (()=>{throw new Error('first row with column types not found!');})() );
+            const result = {
+                colsDiffFlag: [],
+                colsItemName: [],
+                colsLabel: [],
+                colsProperties: [],
+                colsTranslations: [],
+                specialFlags: {}
+            };
+            const unescapeLabel = t => t.replace(/&\\#(\\d+);/ig,(str,m)=>String.fromCharCode(+m)).replace(/^\\s*?(?:\\(\\s*?(?:left|right)\\s+mdd\\s*?\\))?\\s*/ig,'');
+            Array.prototype.forEach.call(headerRowEl.querySelectorAll('td'),function(colEl,colIndex) {
+                colCleanText = unescapeLabel(colEl.innerText||colEl.textContent);
+                if( colIndex==0 ) {
+                    result.colsDiffFlag.push(colIndex);
+                } else if(/item\\s+name/ig.test(colCleanText)&&(colIndex===1)) {
+                    result.colsItemName.push(colIndex);
+                } else if(/^\\s*?label\\b/ig.test(colCleanText)) {
+                    result.colsLabel.push(colIndex);
+                } else if(/properties/ig.test(colCleanText)) {
+                    result.colsProperties.push(colIndex);
+                } else if(/^\\s*?translat\\w*.*?\\(/ig.test(colCleanText)) {
+                    result.colsTranslations.push(colIndex);
+                }
+            });
+            colTypesPromiseResolvers.resolve(result);
+        } catch(e) {
+            try {
+                errorBannerEl.innerHTML = errorBannerEl.innerHTML + `Error: ${e}<br />`;
+            } catch(ee) {};
+            throw e;
+        }
+    }
+    document.addEventListener('mdmreport-oninit',detectColTypes);
+    function detectColTypesCleanHandlers() {
+        try {
+            document.removeEventListener('mdmreport-oninit',detectColTypes);
+        } catch(ee) {}
+    }
+    document.addEventListener('mdmreport-onfinishedrowevents',detectColTypesCleanHandlers);
     const headerCols = [];
     const getElText = function(el) { return el.innerText||el.textContent };
     let bannerCreatedPromiseResolve = () => { throw new Error('please init the promise object first'); };
@@ -415,8 +476,21 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
         try {
             const colEl = event.detail.colEl;
             const tableEl = event.detail.tableEl;
-            const colClassName = `col-${headerCols.length}`;
+            const colIndexZeroBased = headerCols.length;
+            const colClassName = `col-${colIndexZeroBased}`;
             colEl.classList.add(`mdmreport-cols-${colClassName}`);
+            colTypesPromise.then(colIndicesByType=>{
+                if(colIndicesByType.colsDiffFlag.includes(colIndexZeroBased))
+                     colEl.classList.add(`mdmreport-cols-type-diffflag`);
+                if(colIndicesByType.colsItemName.includes(colIndexZeroBased))
+                     colEl.classList.add(`mdmreport-cols-type-itemname`);
+                if(colIndicesByType.colsLabel.includes(colIndexZeroBased))
+                     colEl.classList.add(`mdmreport-cols-type-label`);
+                if(colIndicesByType.colsProperties.includes(colIndexZeroBased))
+                     colEl.classList.add(`mdmreport-cols-type-properties`);
+                if(colIndicesByType.colsTranslations.includes(colIndexZeroBased))
+                     colEl.classList.add(`mdmreport-cols-type-translations`);
+            });
             const colText = getElText(colEl);
             headerCols.push( colText );
             bannerCreatedPromise.then(function(bannerEl) {
@@ -465,9 +539,21 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
             const rowEl = event.detail.rowEl;
             const colsEl = event.detail.colsEl;
             if(!(colsEl.length>0)) { (()=>{ try { errorBannerEl.innerHTML = errorBannerEl.innerHTML + `Warning: css classes: no first col<br />`; } catch(ee) {}; throw new Error('Warning: no first col'); })(); return; };
-            Array.prototype.forEach.call(colsEl,function(colEl,i){
-                const colClassName = `col-${i}`;
+            Array.prototype.forEach.call(colsEl,function(colEl,colIndexZeroBased) {
+                const colClassName = `col-${colIndexZeroBased}`;
                 colEl.classList.add(`mdmreport-cols-${colClassName}`);
+                colTypesPromise.then(colIndicesByType=>{
+                    if(colIndicesByType.colsDiffFlag.includes(colIndexZeroBased))
+                         colEl.classList.add(`mdmreport-cols-type-diffflag`);
+                    if(colIndicesByType.colsItemName.includes(colIndexZeroBased))
+                         colEl.classList.add(`mdmreport-cols-type-itemname`);
+                    if(colIndicesByType.colsLabel.includes(colIndexZeroBased))
+                         colEl.classList.add(`mdmreport-cols-type-label`);
+                    if(colIndicesByType.colsProperties.includes(colIndexZeroBased))
+                         colEl.classList.add(`mdmreport-cols-type-properties`);
+                    if(colIndicesByType.colsTranslations.includes(colIndexZeroBased))
+                         colEl.classList.add(`mdmreport-cols-type-translations`);
+                });
             });
         } catch(e) {
             try {
@@ -525,7 +611,8 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
                 colsItemName: [],
                 colsLabel: [],
                 colsProperties: [],
-                colsTranslations: []
+                colsTranslations: [],
+                specialFlags: {}
             };
             const unescapeLabel = t => t.replace(/&\\#(\\d+);/ig,(str,m)=>String.fromCharCode(+m)).replace(/^\\s*?(?:\\(\\s*?(?:left|right)\\s+mdd\\s*?\\))?\\s*/ig,'');
             Array.prototype.forEach.call(headerRowEl.querySelectorAll('td'),function(colEl,colIndex) {
@@ -551,6 +638,40 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
         }
     }
     document.addEventListener('mdmreport-oninit',detectColTypes);
+    function identifyReportTypeIsolatedRouting(event){
+        let errorBannerEl;
+        try {
+            errorBannerEl = event.detail.errorBannerEl;
+        } catch(e) {
+            throw e;
+        }
+        try {
+            const tableEl = event.detail.tableEl;
+            // detect if routing is the only piece - we'll hide everything else
+            (tableEl=>{
+                const rowsEl = tableEl.querySelectorAll('tr');
+                if((rowsEl.length==3)&&(/\\(\\s*?Info\\s*?\\)/ig.test(rowsEl[1].querySelectorAll('td')[0].textContent))&(/^\\s*?RoutingLine\\.Routing\\s*?$/ig.test(rowsEl[2].querySelectorAll('td')[1].textContent))) {
+                    document.querySelector('body').classList.add('mdmreportpage-type-MDDDiff-type-routingstandalone');
+                    rowsEl[2].classList.add('mdmreport-record-type-routingline');
+                    // rowsEl[0].classList.add('mdmreport-format-hidden');
+                    // rowsEl[1].classList.add('mdmreport-format-hidden');
+                    // Array.prototype.forEach.call(rowsEl,function(rowEl,rowIndex) {
+                    //     Array.prototype.forEach.call(rowEl.querySelectorAll('td'),function(colEl,colIndex) {
+                    //         // result should be gatherred with  colTypesPromise.then(result=>{ ...
+                    //         if(!(result.colsLabel.includes(colIndex)))
+                    //             colEl.classList.add('mdmreport-format-hidden');
+                    //     });
+                    // });
+                };
+            })(tableEl);
+        } catch(e) {
+            try {
+                errorBannerEl.innerHTML = errorBannerEl.innerHTML + `Error: ${e}<br />`;
+            } catch(ee) {};
+            throw e;
+        }
+    }
+    document.addEventListener('mdmreport-oninit',identifyReportTypeIsolatedRouting);
     function process(event){
         let errorBannerEl;
         try {
@@ -617,6 +738,9 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
         } catch(ee) {}
         try {
             document.removeEventListener('mdmreport-oninit',detectColTypes);
+        } catch(ee) {}
+        try {
+            document.removeEventListener('mdmreport-oninit',identifyReportTypeIsolatedRouting);
         } catch(ee) {}
         try {
             document.removeEventListener('mdmreport-onfinishedrowevents',cleanHandlers);
@@ -1272,7 +1396,23 @@ article,aside,details,figcaption,figure,footer,header,hgroup,nav,section,summary
     """
 
     TEMPLATE_HTML_DIFF_STYLES = """
-    something
+<style>
+.mdmreportpage-type-MDDDiff-type-routingstandalone .mdmreport-record {
+    display: none;
+}
+.mdmreportpage-type-MDDDiff-type-routingstandalone .mdmreport-record.mdmreport-record-type-routingline {
+    display: table-row;
+}
+.mdmreportpage-type-MDDDiff-type-routingstandalone .mdmreport-record .mdmreport-contentcell {
+    display: none;
+}
+.mdmreportpage-type-MDDDiff-type-routingstandalone .mdmreport-record .mdmreport-contentcell.mdmreport-cols-type-label {
+    display: table-cell;
+}
+.mdmreportpage-type-MDDDiff-type-routingstandalone .mdmreport-layout-plugin {
+    display: none;
+}
+</style>
     """
 
     TEMPLATE_HTML_COPYBANNER = """
@@ -1325,7 +1465,7 @@ AP
         TEMPLATE_HTML_STYLES_TABLE = TEMPLATE_HTML_STYLES_TABLE,
         ReportHeading = fields_File_ReportHeading,
         banner = ''.join( [ '<p>{content}</p>'.format(content=preptext_html(content)) for content in fields_File_ReportInfo ] ),
-        ADD_SCRIPTS = '{allscripts}{fieldsreportscripts}{diffscripts}'.format(allscripts=TEMPLATE_HTML_SCRIPTS,fieldsreportscripts=TEMPLATE_HTML_FIELDSREPORT_SCRIPTS if fields_mdmreporttype=='MDDFields' else '',diffscripts=TEMPLATE_HTML_DIFF_SCRIPTS if fields_mdmreporttype=='MDDDiff' else '')
+        ADD_SCRIPTS = '{allscripts}{fieldsreportscripts}{diffstyles}{diffscripts}'.format(allscripts=TEMPLATE_HTML_SCRIPTS,fieldsreportscripts=TEMPLATE_HTML_FIELDSREPORT_SCRIPTS if fields_mdmreporttype=='MDDFields' else '',diffscripts=TEMPLATE_HTML_DIFF_SCRIPTS if fields_mdmreporttype=='MDDDiff' else '',diffstyles=TEMPLATE_HTML_DIFF_STYLES if fields_mdmreporttype=='MDDDiff' else '')
     )
 
     TEMPLATE_HTML_END = """
@@ -1377,8 +1517,8 @@ if __name__ == "__main__":
         input_fmt = 'json'
     elif re.match(r'.*\.xml\s*?$',input_map_filename,flags=re.DOTALL|re.ASCII|re.I):
         input_fmt = 'xml'
-    print('Loading input data, fmt = {fmt}...'.format(fmt=input_fmt))
-    input_map_file = open(input_map_filename)
+    print('Loading input data for "{fname}", fmt = {fmt}...'.format(fname=input_map_filename,fmt=input_fmt))
+    input_map_file = open(input_map_filename, encoding="utf8")
     if input_fmt=='json':
         print("Reading JSON...\n")
         preptext_html = preptext_html_alreadyescaped

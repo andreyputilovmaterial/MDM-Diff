@@ -39,6 +39,8 @@ unescape_input_str = unescape_html
 
 def parse_xml(node):
     def prep_text_fmt(s):
+        if s is None:
+            s = ''
         return escape_html(s)
     ans = None
     if re.match(r'^\s*?Row\s*?$',node.tag,flags=re.DOTALL|re.ASCII|re.I):
@@ -882,8 +884,8 @@ if __name__ == "__main__":
             input_fmt = 'json'
         elif re.match(r'.*\.xml\s*?$',input_map_filename,flags=re.DOTALL|re.ASCII|re.I):
             input_fmt = 'xml'
-        print('Loading input data for "{fname}, fmt = {fmt}"...'.format(fname=input_map_filename,fmt=input_fmt))
-        input_map_file = open(input_map_filename)
+        print('Loading input data for "{fname}", fmt = {fmt}"...'.format(fname=input_map_filename,fmt=input_fmt))
+        input_map_file = open(input_map_filename, encoding="utf8")
         if input_fmt=='json':
             print("Reading JSON...\n")
             #preptext_html = preptext_html_alreadyescaped
@@ -903,23 +905,25 @@ if __name__ == "__main__":
     start_time = datetime.utcnow()
     print("Creating diffed data...\n")
 
-    input_input_data_lmdd = None
-    input_input_data_rmdd = None
+    input_data_filename_lmdd = None
+    input_data_filename_rmdd = None
     if len(sys.argv)>2:
-        input_input_data_lmdd = sys.argv[1]
-        input_input_data_rmdd = sys.argv[2]
-    if (input_input_data_lmdd==None) or (input_input_data_rmdd==None):
+        input_data_filename_lmdd = sys.argv[1]
+        input_data_filename_rmdd = sys.argv[2]
+    if (input_data_filename_lmdd==None) or (input_data_filename_rmdd==None):
         raise Exception("MDM Diff: Input files are not specified")
-    if ((not os.path.isfile(input_input_data_lmdd)) or (not os.path.isfile(input_input_data_rmdd))):
-        raise Exception("MDM Diff: Input file is missing")
-    report_lmdd = load_data(input_input_data_lmdd)
-    report_rmdd = load_data(input_input_data_rmdd)
+    if (not os.path.isfile(input_data_filename_lmdd)):
+        raise Exception('MDM Diff: Input file is missing: {fname}'.format(fname=input_data_filename_lmdd))
+    if (not os.path.isfile(input_data_filename_rmdd)):
+        raise Exception('MDM Diff: Input file is missing: {fname}'.format(fname=input_data_filename_rmdd))
+    report_lmdd = load_data(input_data_filename_lmdd)
+    report_rmdd = load_data(input_data_filename_rmdd)
     print("Working...\n")
     output = find_diff(report_lmdd,report_rmdd)
     output = json.dumps(output)
     report_file_name = 'report.diff-report.{mdd_lmdd}-{mdd_rmdd}.json'.format(
-        mdd_lmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.(?:json|xml)\s*?$','',input_input_data_lmdd)),
-        mdd_rmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.(?:json|xml)\s*?$','',input_input_data_rmdd))
+        mdd_lmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.(?:json|xml)\s*?$','',input_data_filename_lmdd)),
+        mdd_rmdd = re.sub(r'^\s*?report\.','',re.sub(r'\.(?:json|xml)\s*?$','',input_data_filename_rmdd))
     )
     print("Writing results...\n")
     with open(report_file_name,'w') as output_file:

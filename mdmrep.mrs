@@ -112,6 +112,11 @@
 #endif
 
 
+#if !defined(REPORT_FILENAME_SUFFIX)
+	#define REPORT_FILENAME_SUFFIX ""
+#endif
+
+
 ' helper defines
 #define MARKER_BEGINLINE_REPLACEMENT "<<BEGIN>>mdm"
 #define MARKER_HIDDENLINEBREAK "<<HIDDENLINEBREAK>>"
@@ -119,15 +124,15 @@
 
 #if (RUN_REPORT_FMT==1)
 	'REPORT file location:
-	#define REPORT_HTML_FILE "report."+INPUT_MDD+".html"
+	#define REPORT_HTML_FILE "report."+INPUT_MDD+""+REPORT_FILENAME_SUFFIX+".html"
 #elif (RUN_REPORT_FMT==2)
 	'REPORT file location:
-	#define REPORT_HTML_FILE "report."+INPUT_MDD+".html"
-	#define REPORT_JSON_FILE "report."+INPUT_MDD+".json"
+	#define REPORT_HTML_FILE "report."+INPUT_MDD+""+REPORT_FILENAME_SUFFIX+".html"
+	#define REPORT_JSON_FILE "report."+INPUT_MDD+""+REPORT_FILENAME_SUFFIX+".json"
 #elif (RUN_REPORT_FMT==3)
 	'REPORT file location:
-	#define REPORT_HTML_FILE "report."+INPUT_MDD+".html"
-	#define REPORT_XML_FILE "report."+INPUT_MDD+".xml"
+	#define REPORT_HTML_FILE "report."+INPUT_MDD+""+REPORT_FILENAME_SUFFIX+".html"
+	#define REPORT_XML_FILE "report."+INPUT_MDD+""+REPORT_FILENAME_SUFFIX+".xml"
 #endif
 
 
