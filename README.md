@@ -1,3 +1,6 @@
+# [DEPRECATED]
+please use MDM-Diff-Py instead
+
 # MDM-Diff
 
 This is a tool used to compare MDDs. It can be used on P-data files or R-data files. It compares metadata - question/item/category names, labels, and also properties and translations (can be configured, switched on of off).
